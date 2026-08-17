@@ -1,7 +1,7 @@
-# PW3 Clock
+# Kindle Departure Clock
 
-Airport split-flap clock for a **Kindle Paperwhite 3 (7th gen)** on firmware
-**5.16.2.1.1**, held in landscape.
+An airport departure-board clock for a **Kindle Paperwhite 3 (7th gen)** on
+firmware **5.16.2.1.1**, held in landscape.
 
 ```
   MON 17 AUG 2026            [==battery==]   [ EXIT ]
@@ -20,6 +20,9 @@ Airport split-flap clock for a **Kindle Paperwhite 3 (7th gen)** on firmware
 A KUAL extension. Needs no SSH, and no WiFi except to refresh the weather.
 
 Flap corners are square: FBInk draws rectangles, not rounded shapes.
+
+It appears in KUAL as **PW3 Clock**, and installs to `extensions/pw3clock`.
+Those names are baked into the scripts and are deliberately left alone.
 
 ## Install
 
