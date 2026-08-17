@@ -24,11 +24,14 @@ Flap corners are square: FBInk draws rectangles, not rounded shapes.
 ## Install
 
 1. Plug the Kindle in over USB.
-2. Copy the whole `pw3clock` folder to `extensions/pw3clock`, replacing any
-   earlier copy.
-3. Check the path is `extensions/pw3clock/config.xml` — not an extra nested
-   `pw3clock/pw3clock/`. KUAL will not see it otherwise.
-4. Eject.
+2. Create a folder called `pw3clock` inside `extensions` on the Kindle drive,
+   replacing any earlier copy.
+3. Copy the *contents* of this repository into it. The folder must be named
+   `pw3clock`: that path is baked into the launcher scripts and `menu.json`.
+4. Check that `extensions/pw3clock/config.xml` exists, and that you have not
+   ended up with a nested `extensions/pw3clock/kindle-departure-clock/`.
+   KUAL will not see the extension otherwise.
+5. Eject.
 
 Set the Kindle's own clock in Settings first; the board just displays it.
 
