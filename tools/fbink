@@ -1,0 +1,10 @@
+#!/bin/sh
+# Shim so clock.sh can call "$FBINK" unchanged during local preview.
+DIR=$(cd "$(dirname "$0")" && pwd)
+for CAND in "$DIR/../.venv/bin/python" "$DIR/../../.venv/bin/python"; do
+    if [ -x "$CAND" ]; then
+        PY="$CAND"
+        break
+    fi
+done
+exec "${PY:-python3}" "$DIR/fbink-sim.py" "$@"

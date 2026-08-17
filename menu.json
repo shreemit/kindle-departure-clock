@@ -1,0 +1,25 @@
+{
+  "items": [
+    {
+      "name": "PW3 Clock",
+      "priority": -900,
+      "items": [
+        {
+          "name": "1. Self-test (keep Kindle UI, write log)",
+          "action": "/bin/sh /mnt/us/extensions/pw3clock/bin/debug.sh",
+          "exitmenu": false
+        },
+        {
+          "name": "2. Start clock",
+          "action": "setsid /bin/sh /mnt/us/extensions/pw3clock/bin/start.sh",
+          "exitmenu": true
+        },
+        {
+          "name": "3. Stop clock / restore Kindle UI",
+          "action": "/bin/sh /mnt/us/extensions/pw3clock/bin/stop.sh",
+          "exitmenu": true
+        }
+      ]
+    }
+  ]
+}
