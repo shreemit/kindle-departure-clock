@@ -31,4 +31,9 @@ Fetched at runtime from https://wttr.in (metric). Not redistributed here.
 
 Everything else in this repository — the shell scripts under bin/, the KUAL
 extension metadata, and the desktop preview harness under tools/ — was written
-for this project.
+for this project and is MIT licensed. See LICENSE.
+
+The MIT licence covers this project's own code only. The bundled binary and
+fonts above remain under their own licences. The scripts invoke fbink as a
+separate executable rather than linking against it, so they are not a
+derivative work of FBInk.

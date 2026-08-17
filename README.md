@@ -153,8 +153,18 @@ Two FBInk behaviours cause most of the trouble:
 Text is laid out downward from the `top` margin, and needs room for the full
 line height — roughly 1.25× the em size — not just the em size.
 
-## Credits
+## Licence
 
-FBInk by NiLuJe, taken from the KOReader `kindlepw2` build (soft-float, correct
-for this firmware — do not swap in a `kindlehf` binary). Barlow Condensed under
-the OFL. Weather from wttr.in. See `CREDITS`.
+This project's own code — everything under `bin/` and `tools/`, plus the KUAL
+extension metadata — is [MIT licensed](LICENSE).
+
+Two third-party components are bundled and keep their own licences:
+
+| Component | Licence | Source |
+| --- | --- | --- |
+| `bin/fbink` | GPL-3.0-or-later | [NiLuJe/FBInk](https://github.com/NiLuJe/FBInk), via the KOReader `kindlepw2` build |
+| `fonts/BarlowCondensed-*.ttf` | SIL OFL 1.1 | [jpt/barlow](https://github.com/jpt/barlow) |
+
+The scripts run `fbink` as a separate executable rather than linking against
+it, so they are not a derivative work of it. Weather comes from
+[wttr.in](https://wttr.in) at runtime. Full detail in `CREDITS`.
