@@ -1,5 +1,7 @@
 .venv/
 tools/.preview/
+# Board renders from tools/preview.sh
+/*.png
 __pycache__/
 *.pyc
 .DS_Store

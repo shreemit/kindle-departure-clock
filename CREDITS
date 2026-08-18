@@ -25,6 +25,18 @@ Barlow by Jeremy Tribby — https://github.com/jpt/barlow
 Licensed under the SIL Open Font License 1.1.
 Full licence text: fonts/BarlowOFL.txt
 
+fonts/Jersey25-Regular.ttf
+---------------------------------
+Jersey 25 by Google Fonts contributors — https://github.com/google/fonts/tree/main/ofl/jersey25
+Licensed under the SIL Open Font License 1.1.
+Full licence text: fonts/JerseyOFL.txt
+
+fonts/PressStart2P-Regular.ttf
+---------------------------------
+Press Start 2P by Cody "CodeMan38" Boisclair — https://github.com/google/fonts/tree/main/ofl/pressstart2p
+Licensed under the SIL Open Font License 1.1.
+Full licence text: fonts/PressStart2POFL.txt
+
 Weather data
 ------------
 Fetched at runtime from https://wttr.in (metric). Not redistributed here.
