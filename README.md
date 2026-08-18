@@ -4,17 +4,21 @@ An airport departure-board clock for a **Kindle Paperwhite 3 (7th gen)** on
 firmware **5.16.2.1.1**, held in landscape.
 
 ```
-  MON 17 AUG 2026            [==battery==]   [ EXIT ]
+  17 AUG 2026                [==battery==]   [ EXIT ]
 
      ┌────┐ ┌────┐   ▪   ┌────┐ ┌────┐
-     │ 0  │ │ 2  │       │ 0  │ │ 8  │
+    │ 0  │ │ 2  │       │ 0  │ │ 8  │
      └────┘ └────┘  PM   └────┘ └────┘
 
+  RISE 6:12AM   ┌─┐┌─┐┌─┐┌─┐┌─┐┌─┐┌─┐   SET 8:20PM
+                │M││T││W││T││F││S││S│
+
    ┌──────────────────────────────────────────┐
-   │  FEELS        20°C          HUMIDITY     │
-   │  18°C                       62%          │
+   │  FEELS          AIR          RAIN AT     │
+   │  18°C           20°C         9PM         │
+   │  WIND 8K NW                  HUM 62%     │
    └──────────────────────────────────────────┘
-              TAP EXIT OR TAP 3X TO QUIT
+           OVERCAST · TAP 3X TO QUIT
 ```
 
 A KUAL extension. Needs no SSH, and no WiFi except to refresh the weather.
@@ -69,6 +73,7 @@ All in `extensions/pw3clock/config.sh`. Restart the clock to apply.
 | Setting | Default | Notes |
 | --- | --- | --- |
 | `THEME` | `light` | `light` is black on white. `dark` is white on black. |
+| `FONT` | `arcade` | `arcade` = Jersey 25 pixel (clearest digits). `retro` = Press Start 2P. `barlow` = airport condensed. |
 | `TIME_FORMAT` | `%I:%M` | `%I` is 12-hour and adds AM/PM under the colon. `%H` is 24-hour with no marker. Must stay four digits and a colon. |
 | `DATE_FORMAT` | `%a %d %b %Y` | Any busybox `date` format. Drawn in caps. |
 | `WEATHER_CITY` | `Seattle` | Empty guesses from your IP. Quote names with spaces. |
@@ -81,9 +86,21 @@ All in `extensions/pw3clock/config.sh`. Restart the clock to apply.
 
 ## Weather
 
-One request to wttr.in per refresh returns the temperature, feels-like and
-humidity together, so the extra readings cost no additional wake time. Metric
-only. If a fetch fails the previous values stay on screen.
+One request to wttr.in per refresh returns current conditions plus today's
+hourly chance of rain, so the extra readings cost no additional wake time.
+Metric only. If a fetch fails the previous values stay on screen.
+
+The right-hand complication is Seattle-flavoured rain, not humidity:
+
+| On screen | Meaning |
+| --- | --- |
+| `RAIN` / `NOW` | Raining |
+| `DRIZZLE` / `NOW` | Fine Seattle rain |
+| `RAIN AT` / `6PM` | Dry now; rain likely from that hour (≥40%) |
+| `CLOUDY` / `DRY` | Overcast, no rain coming |
+| `DRY` / `CLEAR` | Sunny, no rain coming |
+
+Humidity, wind, sunrise and sunset are secondary. The weekday strip is Monday–Sunday, with today filled. Date is `17 AUG` at primary size; the weekday lives on that strip.
 
 ## Refresh and battery
 
@@ -114,12 +131,12 @@ python3 -m venv .venv && ./.venv/bin/pip install Pillow
 Defaults to the live time in your configured format. Override anything:
 
 ```
-THEME_OVERRIDE=dark TIME=09:05 TEMP="-15°C" FEELS="-19°C" HUM=88% BAT=8 \
+THEME_OVERRIDE=dark FONT_OVERRIDE=barlow TIME=09:05 TEMP="-15°C" FEELS="-19°C" HUM=88% BAT=8 \
   sh tools/preview.sh out.png
 ```
 
-Accepted: `THEME_OVERRIDE`, `TIME`, `AMPM`, `DATE`, `BAT`, `TEMP`, `FEELS`,
-`HUM`, `COND`, `WIND`, `W`, `H`.
+Accepted: `THEME_OVERRIDE`, `FONT_OVERRIDE`, `TIME`, `AMPM`, `DATE`, `BAT`, `TEMP`, `FEELS`,
+`HUM`, `COND`, `WIND`, `PRECIP`, `HOURLY`, `RAIN`, `RAIN_LABEL`, `RISE`, `SET`, `W`, `H`.
 
 `tools/fbink-sim.py` stands in for the FBInk CLI. It deliberately reproduces
 FBInk's failure modes — refusing text that will not fit its margins, and
@@ -164,12 +181,14 @@ line height — roughly 1.25× the em size — not just the em size.
 This project's own code — everything under `bin/` and `tools/`, plus the KUAL
 extension metadata — is [MIT licensed](LICENSE).
 
-Two third-party components are bundled and keep their own licences:
+Third-party components are bundled and keep their own licences:
 
 | Component | Licence | Source |
 | --- | --- | --- |
 | `bin/fbink` | GPL-3.0-or-later | [NiLuJe/FBInk](https://github.com/NiLuJe/FBInk), via the KOReader `kindlepw2` build |
 | `fonts/BarlowCondensed-*.ttf` | SIL OFL 1.1 | [jpt/barlow](https://github.com/jpt/barlow) |
+| `fonts/Jersey25-Regular.ttf` | SIL OFL 1.1 | [Google Fonts / Jersey 25](https://github.com/google/fonts/tree/main/ofl/jersey25) |
+| `fonts/PressStart2P-Regular.ttf` | SIL OFL 1.1 | [CodeMan38 / Press Start 2P](https://github.com/google/fonts/tree/main/ofl/pressstart2p) |
 
 The scripts run `fbink` as a separate executable rather than linking against
 it, so they are not a derivative work of it. Weather comes from

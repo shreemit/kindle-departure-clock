@@ -4,6 +4,10 @@
 # light = black text on white paper. dark = white text on a black board.
 THEME="light"
 
+# Typeface. arcade = pixel digits with clear 2/5/6 (Jersey 25).
+# retro = classic NES arcade (Press Start 2P). barlow = airport condensed.
+FONT="arcade"
+
 # Flap board time. Must stay in HH:MM shape (four digits and a colon).
 #   12-hour: %I:%M   adds an AM/PM marker under the colon
 #   24-hour: %H:%M
