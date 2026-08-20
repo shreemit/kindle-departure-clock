@@ -36,7 +36,6 @@ WEATHER_RAIN_LABEL="RAIN"
 WEATHER_RAIN="--"
 WEATHER_RISE="--"
 WEATHER_SET="--"
-WIFI_WAS=""
 SHOW_AMPM=1
 CLOCK_AMPM=""
 NEW_ROTATE=""
@@ -90,7 +89,11 @@ load_config() {
     USE_SUSPEND="${USE_SUSPEND:-0}"
     WEATHER_CITY="${WEATHER_CITY:-}"
     WEATHER_WIFI="${WEATHER_WIFI:-1}"
-    WEATHER_EVERY="${WEATHER_EVERY:-30}"
+    WEATHER_EVERY="${WEATHER_EVERY:-60}"
+    FULL_REFRESH_EVERY="${FULL_REFRESH_EVERY:-60}"
+    QUIET_START="${QUIET_START:-}"
+    QUIET_END="${QUIET_END:-07:00}"
+    QUIET_CLOCK_EVERY="${QUIET_CLOCK_EVERY:-5}"
     ROTATE="${ROTATE:-auto}"
     THEME="${THEME:-light}"
     TOUCH_MAP="${TOUCH_MAP:-1}"
@@ -427,10 +430,8 @@ enable_wifi() {
     lipc-set-prop com.lab126.cmd wirelessEnable 1 >/dev/null 2>&1
 }
 
-restore_wifi() {
-    if [ "$WIFI_WAS" = "off" ]; then
-        lipc-set-prop com.lab126.cmd wirelessEnable 0 >/dev/null 2>&1
-    fi
+disable_wifi() {
+    lipc-set-prop com.lab126.cmd wirelessEnable 0 >/dev/null 2>&1
 }
 
 wait_wifi() {
@@ -679,9 +680,7 @@ fetch_weather() {
 update_weather() {
     load_weather_cache
     _st=$(wifi_state)
-    WIFI_WAS="on"
     if [ "$_st" != "CONNECTED" ]; then
-        WIFI_WAS="off"
         if [ "$WEATHER_WIFI" != "1" ]; then
             log "wifi down, skip weather"
             return 1
@@ -689,14 +688,64 @@ update_weather() {
         enable_wifi
         if ! wait_wifi; then
             log "wifi wait failed"
-            restore_wifi
+            disable_wifi
             return 1
         fi
     fi
     fetch_weather
     _rc=$?
-    restore_wifi
+    # Always drop the radio after a fetch — leaving WiFi up drains the pack.
+    disable_wifi
     return $_rc
+}
+
+# "03:00" -> minutes since midnight. Empty or bad input -> -1.
+hm_to_minutes() {
+    case "$1" in
+        [0-9]:[0-9][0-9]|[0-1][0-9]:[0-9][0-9]|2[0-3]:[0-9][0-9])
+            _hh=${1%%:*}
+            _mm=${1##*:}
+            _hh=$(dezero "$_hh")
+            _mm=$(dezero "$_mm")
+            echo $((_hh * 60 + _mm))
+            ;;
+        *)
+            echo -1
+            ;;
+    esac
+}
+
+now_minutes() {
+    _hh=$(dezero "$(date +%H 2>/dev/null)")
+    _mm=$(dezero "$(date +%M 2>/dev/null)")
+    echo $((_hh * 60 + _mm))
+}
+
+is_quiet_hours() {
+    [ -n "$QUIET_START" ] || return 1
+    _qs=$(hm_to_minutes "$QUIET_START")
+    _qe=$(hm_to_minutes "$QUIET_END")
+    [ "$_qs" -ge 0 ] && [ "$_qe" -ge 0 ] || return 1
+    _n=$(now_minutes)
+    if [ "$_qs" -le "$_qe" ]; then
+        [ "$_n" -ge "$_qs" ] && [ "$_n" -lt "$_qe" ]
+    else
+        # Window wraps midnight, e.g. 23:00–07:00.
+        [ "$_n" -ge "$_qs" ] || [ "$_n" -lt "$_qe" ]
+    fi
+}
+
+# Minutes between clock draws: quiet interval, otherwise 1.
+clock_interval_minutes() {
+    if is_quiet_hours; then
+        _qi=${QUIET_CLOCK_EVERY:-5}
+        case "$_qi" in
+            ''|*[!0-9]*|0) echo 5 ;;
+            *) echo "$_qi" ;;
+        esac
+    else
+        echo 1
+    fi
 }
 
 fill_rect() {
@@ -1152,19 +1201,48 @@ start_touch_watcher() {
     log "touch watcher pid=$TOUCH_PID"
 }
 
-sleep_until_next_minute() {
-    _now=$(date +%s)
-    _secs=$((60 - (_now % 60)))
-    if [ "$_secs" -lt 3 ]; then
-        _secs=$((_secs + 60))
-    fi
-    log "sleeping ${_secs}s"
+sleep_for_secs() {
+    _secs="$1"
+    [ "$_secs" -gt 0 ] || _secs=1
+    log "sleeping ${_secs}s (suspend=$USE_SUSPEND)"
     if [ "$USE_SUSPEND" = "1" ]; then
         rtcwake -d /dev/rtc1 -m no -s "$_secs" >> "$LOG" 2>&1
         echo mem > /sys/power/state
     else
         sleep "$_secs"
     fi
+}
+
+# Sleep until the next N-minute boundary (aligned to midnight).
+sleep_until_next_tick() {
+    _interval=${1:-1}
+    case "$_interval" in
+        ''|*[!0-9]*|0) _interval=1 ;;
+    esac
+    _ih=$(dezero "$(date +%H 2>/dev/null)")
+    _im=$(dezero "$(date +%M 2>/dev/null)")
+    _is=$(dezero "$(date +%S 2>/dev/null)")
+    _into=$((_ih * 3600 + _im * 60 + _is))
+    _span=$((_interval * 60))
+    _secs=$((_span - (_into % _span)))
+    if [ "$_secs" -lt 3 ]; then
+        _secs=$((_secs + _span))
+    fi
+    sleep_for_secs "$_secs"
+}
+
+# True if at least _mins minutes have passed since unix epoch _since (0 = never).
+minutes_elapsed() {
+    _since=$1
+    _mins=$2
+    case "$_mins" in
+        ''|*[!0-9]*|0) return 0 ;;
+    esac
+    if [ "$_since" -eq 0 ]; then
+        return 0
+    fi
+    _now=$(date +%s)
+    [ $((_now - _since)) -ge $((_mins * 60)) ]
 }
 
 probe_one() {
@@ -1245,6 +1323,8 @@ run_clock() {
     pick_font
     prevent_screensaver
     frontlight_off
+    # Lowest CPU clock while the board is running.
+    echo powersave > /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor 2>/dev/null
     load_weather_cache
 
     sleep 2
@@ -1252,31 +1332,47 @@ run_clock() {
     setup_landscape 1
     frontlight_off
     prevent_screensaver
+    disable_wifi
 
     draw_clock 1
     start_touch_watcher
     update_weather
+    _last_weather=$(date +%s)
+    _last_full=$(date +%s)
     draw_clock 0
 
     _cycle=0
     while true; do
+        _interval=$(clock_interval_minutes)
+        sleep_until_next_tick "$_interval"
+
         if [ "$GOT_SIGNAL" = "1" ] || should_stop; then
             log "stop requested"
             break
         fi
-        # Flashing refresh periodically to clear accumulated e-ink ghosting.
+
+        _quiet=0
+        is_quiet_hours && _quiet=1
+        # Interval can change when we cross into/out of quiet hours.
+        _interval=$(clock_interval_minutes)
+
+        # Flashing full refresh on a wall-clock cadence during the day only.
         _full=0
-        if [ $((_cycle % 10)) -eq 0 ]; then
+        if [ "$_quiet" -eq 0 ] && minutes_elapsed "$_last_full" "$FULL_REFRESH_EVERY"; then
             _full=1
+            _last_full=$(date +%s)
         fi
-        if [ $((_cycle % WEATHER_EVERY)) -eq 0 ] && [ "$_cycle" -gt 0 ]; then
+
+        # Weather on its own timer; quiet hours keep the radio cold.
+        if [ "$_quiet" -eq 0 ] && minutes_elapsed "$_last_weather" "$WEATHER_EVERY"; then
             update_weather
+            _last_weather=$(date +%s)
         fi
+
         draw_clock "$_full"
-        status "running $_cycle"
+        status "running $_cycle quiet=$_quiet every=${_interval}m"
         [ $((_cycle % 60)) -eq 0 ] && trim_log
         frontlight_off
-        sleep_until_next_minute
         _cycle=$((_cycle + 1))
     done
 

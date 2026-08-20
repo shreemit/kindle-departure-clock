@@ -77,9 +77,12 @@ All in `extensions/pw3clock/config.sh`. Restart the clock to apply.
 | `TIME_FORMAT` | `%I:%M` | `%I` is 12-hour and adds AM/PM under the colon. `%H` is 24-hour with no marker. Must stay four digits and a colon. |
 | `DATE_FORMAT` | `%a %d %b %Y` | Any busybox `date` format. Drawn in caps. |
 | `WEATHER_CITY` | `Seattle` | Empty guesses from your IP. Quote names with spaces. |
-| `WEATHER_WIFI` | `1` | `1` briefly enables WiFi to refresh. `0` only fetches if already online. |
-| `WEATHER_EVERY` | `30` | Minutes between weather refreshes. |
-| `USE_SUSPEND` | `0` | `1` suspends to RAM between minutes to save power. `0` is simpler and fine on mains. |
+| `WEATHER_WIFI` | `1` | `1` briefly enables WiFi to refresh. `0` only fetches if already online. Radio is always turned off after a fetch. |
+| `WEATHER_EVERY` | `60` | Minutes between weather refreshes. Skipped during quiet hours. |
+| `FULL_REFRESH_EVERY` | `60` | Minutes between flashing full refreshes during the day. Skipped while quiet. |
+| `QUIET_START` / `QUIET_END` | `03:00` / `07:00` | Quiet window (24h `HH:MM`). Empty `QUIET_START` disables quiet hours. |
+| `QUIET_CLOCK_EVERY` | `5` | Minutes between clock updates while quiet. |
+| `USE_SUSPEND` | `1` | `1` suspends to RAM between ticks. Unplug USB first. `0` if plugged in. |
 | `ROTATE` | `auto` | Set `0`–`3` if `auto` leaves the board portrait or upside down. |
 | `TOUCH_MAP` | `1` | Only matters if EXIT ignores taps but 3-tap works. Try `2`, `3`, `4`. |
 | `DEBUG_SECONDS` | `20` | How long self-test stays on screen. |
@@ -104,14 +107,20 @@ Humidity, wind, sunrise and sunset are secondary. The weekday strip is Monday–
 
 ## Refresh and battery
 
-The screen redraws once a minute, with a flashing full refresh every 10 minutes
-to clear e-ink ghosting. Between updates the script sleeps, so it uses no CPU.
+The screen redraws once a minute by day, and every `QUIET_CLOCK_EVERY`
+minutes between `QUIET_START` and `QUIET_END` (default 03:00–07:00). A flashing
+full refresh runs about once an hour during the day to clear e-ink ghosting;
+weather uses the same hourly cadence and is skipped while quiet. Between ticks
+the script suspends to RAM when `USE_SUSPEND=1`, so the CPU and radio stay cold.
+
+WiFi is only brought up for a weather fetch, then turned off again.
 
 The EXIT watcher blocks on the touchscreen rather than polling, so it costs
 nothing while idle.
 
-Expect roughly a couple of days on battery. Leave it on a charger for permanent
-use, or set `USE_SUSPEND=1`.
+Expect roughly several days on battery with suspend on; leave it on a charger
+for permanent use, or set `USE_SUSPEND=0` while plugged in (suspend fails over
+USB).
 
 ## Previewing on your computer
 
