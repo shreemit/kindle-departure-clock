@@ -4,7 +4,7 @@ An airport departure-board clock for a **Kindle Paperwhite 3 (7th gen)** on
 firmware **5.16.2.1.1**, held in landscape.
 
 ```
-  17 AUG 2026                [==battery==]   [ EXIT ]
+  17 AUG 2026             87% [====]   [ EXIT ]
 
      ┌────┐ ┌────┐   ▪   ┌────┐ ┌────┐
     │ 0  │ │ 2  │       │ 0  │ │ 8  │

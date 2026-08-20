@@ -873,7 +873,7 @@ draw_flap() {
 }
 
 draw_battery() {
-    # left top w h percent
+    # left top w h percent — bar with nub, percentage printed to its left.
     _btl=$1
     _btt=$2
     _btw=$3
@@ -883,6 +883,20 @@ draw_battery() {
         ''|*[!0-9]*) _btp=0 ;;
     esac
     [ "$_btp" -gt 100 ] && _btp=100
+
+    _bpct="${_btp}%"
+    _bp_size=$((_bth * 72 / 100))
+    [ "$_bp_size" -lt 28 ] && _bp_size=28
+    # Room for up to "100%" left of the icon.
+    _bp_w=$((_bp_size * 30 / 10))
+    _bp_gap=14
+    _bp_l=$((_btl - _bp_gap - _bp_w))
+    [ "$_bp_l" -lt 0 ] && _bp_l=0
+    _bp_top=$((_btt + _bth / 2 - _bp_size * FONT_MID / 100))
+    [ "$_bp_top" -lt 0 ] && _bp_top=0
+    print_ot "$FONT_BOLD" "$_bp_size" "$_bp_top" \
+        "$_bp_l" $((VIEW_W - _btl + _bp_gap)) "$_bpct" 1
+
     outline_rect "$_btt" "$_btl" "$_btw" "$_bth" 3
     # Terminal nub, so it reads as a battery rather than a progress bar.
     fill_rect "$INK" $((_btt + _bth / 3)) $((_btl + _btw)) 10 $((_bth / 3))
@@ -998,9 +1012,13 @@ draw_airport() {
     _exit_w=190
     _exit_h=70
     _exit_l=$((W - 40 - _exit_w))
-    _bat_w=150
+    _bat_w=130
     _bat_h=48
+    # Leave room left of the icon for "100%" (drawn inside draw_battery).
+    _bat_pct_room=$((_bat_h * 72 / 100 * 30 / 10 + 14))
     _bat_l=$((_exit_l - _bat_w - 40))
+    _bat_block_l=$((_bat_l - _bat_pct_room))
+    [ "$_bat_block_l" -lt 0 ] && _bat_block_l=0
 
     # Primary type is the air-temp size. Feels, rain value and date match it.
     _primary=$((_box_h * 60 / 100))
@@ -1038,7 +1056,7 @@ draw_airport() {
     [ "$_date_top" -lt 8 ] && _date_top=8
     _year_size=$_secondary
     _year_top=$((_hdr_mid - _year_size * FONT_MID / 100))
-    _date_right=$((W - _bat_l + 24))
+    _date_right=$((W - _bat_block_l + 24))
     # Year sits after the day+month. 17 AUG is about 3.2em of Jersey.
     _year_left=$((_margin + _primary * 32 / 10))
 
@@ -1046,7 +1064,7 @@ draw_airport() {
         "$_exit_l" $((W - _exit_l - _exit_w)) "EXIT" 1
     draw_battery "$_bat_l" "$_bat_t" "$_bat_w" "$_bat_h" "$_bat"
     print_ot "$FONT_BOLD" "$_primary" "$_date_top" "$_margin" "$_date_right" "$DATE_PRI" 0
-    print_ot "$FONT_REG" "$_year_size" "$_year_top" "$_year_left" $((W - _bat_l + 8)) "$DATE_YEAR" 0
+    print_ot "$FONT_REG" "$_year_size" "$_year_top" "$_year_left" $((W - _bat_block_l + 8)) "$DATE_YEAR" 0
 
     _band_top=$((_header + _gap_v))
     _band_bot=$((_week_top - _gap_v))
