@@ -23,14 +23,24 @@ WEATHER_CITY="Seattle"
 # 1 = turn WiFi on briefly to fetch weather. 0 = only fetch if already online.
 WEATHER_WIFI=1
 
-# Minutes between weather refreshes.
-WEATHER_EVERY=30
+# Minutes between weather refreshes (skipped during quiet hours).
+WEATHER_EVERY=60
+
+# Minutes between flashing full refreshes during the day (skipped while quiet).
+FULL_REFRESH_EVERY=60
+
+# Quiet hours: slower clock ticks, no weather, no full flash.
+# Times are 24-hour HH:MM. Leave QUIET_START empty to disable.
+QUIET_START="03:00"
+QUIET_END="07:00"
+QUIET_CLOCK_EVERY=5
 
 # Seconds to stay on screen during self-test.
 DEBUG_SECONDS=20
 
-# 1 = suspend-to-RAM between minute updates. 0 = stay awake (better if plugged in).
-USE_SUSPEND=0
+# 1 = suspend-to-RAM between updates. 0 = stay awake (better if plugged in).
+# Unplug USB first — suspend fails while charging.
+USE_SUSPEND=1
 
 # Framebuffer rotate value if the board is sideways after Start.
 # auto = try 0,1,2,3 until width > height. Or set 0, 1, 2, or 3.
