@@ -67,7 +67,6 @@ All in `extensions/pw3clock/config.sh`. Restart the clock to apply.
 | Setting | Default | Notes |
 | --- | --- | --- |
 | `THEME` | `light` | `light` is black on white. `dark` is white on black. |
-| `FONT` | `arcade` | `arcade` = Jersey 25 pixel (clearest digits). `retro` = Press Start 2P. `barlow` = airport condensed. |
 | `TIME_FORMAT` | `%I:%M` | `%I` is 12-hour and adds AM/PM under the colon. `%H` is 24-hour with no marker. Must stay four digits and a colon. |
 | `DATE_FORMAT` | `%a %d %b %Y` | Any busybox `date` format. Drawn in caps. |
 | `WEATHER_LAT` / `WEATHER_LON` | `47.62409` / `-122.33567` | Open-Meteo coordinates (South Lake Union). No API key. |
@@ -137,11 +136,11 @@ python3 -m venv .venv && ./.venv/bin/pip install Pillow
 Defaults to the live time in your configured format. Override anything:
 
 ```
-THEME_OVERRIDE=dark FONT_OVERRIDE=barlow TIME=09:05 TEMP="-15°C" FEELS="-19°C" HUM=88% BAT=8 \
+THEME_OVERRIDE=dark TIME=09:05 TEMP="-15°C" FEELS="-19°C" HUM=88% BAT=8 \
   sh tools/preview.sh out.png
 ```
 
-Accepted: `THEME_OVERRIDE`, `FONT_OVERRIDE`, `TIME`, `AMPM`, `DATE`, `BAT`, `TEMP`, `FEELS`,
+Accepted: `THEME_OVERRIDE`, `TIME`, `AMPM`, `DATE`, `BAT`, `TEMP`, `FEELS`,
 `HUM`, `COND`, `WIND`, `PRECIP`, `HOURLY`, `RAIN`, `RAIN_LABEL`, `RISE`, `SET`, `W`, `H`.
 
 `tools/fbink-sim.py` stands in for the FBInk CLI. It deliberately reproduces
@@ -191,9 +190,7 @@ Third-party components are bundled and keep their own licences:
 | Component | Licence | Source |
 | --- | --- | --- |
 | `bin/fbink` | GPL-3.0-or-later | [NiLuJe/FBInk](https://github.com/NiLuJe/FBInk), via the KOReader `kindlepw2` build |
-| `fonts/BarlowCondensed-*.ttf` | SIL OFL 1.1 | [jpt/barlow](https://github.com/jpt/barlow) |
 | `fonts/Jersey25-Regular.ttf` | SIL OFL 1.1 | [Google Fonts / Jersey 25](https://github.com/google/fonts/tree/main/ofl/jersey25) |
-| `fonts/PressStart2P-Regular.ttf` | SIL OFL 1.1 | [CodeMan38 / Press Start 2P](https://github.com/google/fonts/tree/main/ofl/pressstart2p) |
 
 The scripts run `fbink` as a separate executable rather than linking against
 it, so they are not a derivative work of it. Weather comes from

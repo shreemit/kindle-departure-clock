@@ -4,7 +4,7 @@
 #   tools/preview.sh [output.png]
 #
 # Env overrides:
-#   THEME_OVERRIDE=dark  FONT_OVERRIDE=barlow  TIME=09:05  DATE="Mon 17 Aug 2026"
+#   THEME_OVERRIDE=dark  TIME=09:05  DATE="Mon 17 Aug 2026"
 #   BAT=50  COND=SUNNY  TEMP=20°C  WIND="8 KM/H"  W=1448  H=1072
 
 set -e
@@ -40,9 +40,6 @@ load_config
 if [ -n "$THEME_OVERRIDE" ]; then
     THEME="$THEME_OVERRIDE"
     apply_theme
-fi
-if [ -n "$FONT_OVERRIDE" ]; then
-    FONT="$FONT_OVERRIDE"
 fi
 pick_font
 

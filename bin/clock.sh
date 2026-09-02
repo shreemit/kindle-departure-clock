@@ -178,7 +178,6 @@ load_config() {
     ROTATE="${ROTATE:-auto}"
     THEME="${THEME:-light}"
     TOUCH_MAP="${TOUCH_MAP:-1}"
-    FONT="${FONT:-arcade}"
     apply_theme
 }
 
@@ -250,46 +249,15 @@ pick_font() {
     FONT_DATE_MUL=86
     FONT_ADVANCE=50
 
-    case "$FONT" in
-        arcade|mario|game|pixel|pixelify|jersey)
-            FONT_BOLD="${EXT_DIR}/fonts/Jersey25-Regular.ttf"
-            FONT_REG="${EXT_DIR}/fonts/Jersey25-Regular.ttf"
-            if [ -f "$FONT_REG" ]; then
-                # Jersey 25: tall pixel digits with clear 2/5/6 shapes.
-                # Slightly narrower date than Pixelify so the header still fits.
-                FONT_DATE_MUL=80
-                FONT_ADVANCE=48
-                FONT_GRID=4
-                # Jersey ink sits at ~0.50em. 64 was for mixed text and left
-                # the flap digits sitting above the hinge line.
-                FONT_FLAP_MID=50
-                log "Using bundled Jersey 25 (arcade)"
-                return 0
-            fi
-            log "Jersey missing, falling back to Barlow"
-            ;;
-        retro|pressstart|nes)
-            FONT_BOLD="${EXT_DIR}/fonts/PressStart2P-Regular.ttf"
-            FONT_REG="${EXT_DIR}/fonts/PressStart2P-Regular.ttf"
-            if [ -f "$FONT_REG" ]; then
-                # Classic Namco/NES arcade face. Very wide — date is smaller.
-                FONT_DATE_MUL=52
-                FONT_ADVANCE=100
-                FONT_GRID=8
-                FONT_FLAP_MID=50
-                log "Using bundled Press Start 2P (retro)"
-                return 0
-            fi
-            log "Press Start missing, falling back to Barlow"
-            ;;
-    esac
-
-    FONT_BOLD="${EXT_DIR}/fonts/BarlowCondensed-SemiBold.ttf"
-    FONT_REG="${EXT_DIR}/fonts/BarlowCondensed-Regular.ttf"
-    if [ -f "$FONT_BOLD" ] && [ -f "$FONT_REG" ]; then
-        log "Using bundled Barlow Condensed"
-        FONT_FLAP_MID=65
-        FONT_ADVANCE=42
+    FONT_BOLD="${EXT_DIR}/fonts/Jersey25-Regular.ttf"
+    FONT_REG="${EXT_DIR}/fonts/Jersey25-Regular.ttf"
+    if [ -f "$FONT_REG" ]; then
+        # Jersey 25: tall pixel digits with clear 2/5/6 shapes.
+        FONT_DATE_MUL=80
+        FONT_ADVANCE=48
+        FONT_GRID=4
+        FONT_FLAP_MID=50
+        log "Using bundled Jersey 25"
         return 0
     fi
     FONT_BOLD=""
@@ -1677,7 +1645,7 @@ dump_selftest() {
     log "lipc batt=$(lipc-get-prop com.lab126.powerd battLevel 2>&1)"
     log "wifi=$(lipc-get-prop com.lab126.wifid cmState 2>&1)"
     log "FBINK_NO_SW_ROTA=$FBINK_NO_SW_ROTA"
-    log "fonts face=$FONT bold=$FONT_BOLD"
+    log "fonts bold=$FONT_BOLD"
     ls -l "${EXT_DIR}/fonts" >> "$LOG" 2>&1
     if [ "$HAVE_FBINK" -eq 1 ]; then
         "$FBINK" -e >> "$LOG" 2>&1
