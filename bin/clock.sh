@@ -21,6 +21,7 @@ FONT_BASE=36
 FONT_FLAP_MID=50
 FONT_GRID=1
 FONT_DATE_MUL=86
+FONT_ADVANCE=50
 VIEW_W=1072
 VIEW_H=1448
 ORIG_ROTATE=""
@@ -55,6 +56,84 @@ log() {
     { echo "$_msg" >> "$LOG2"; } 2>/dev/null
 }
 
+# #region agent log
+agent_dbg() {
+    _hid=$1
+    _loc=$2
+    _msg=$3
+    _data=$4
+    _epoch=$(date +%s 2>/dev/null)
+    [ -n "$_epoch" ] || _epoch=0
+    _line=$(printf '{"sessionId":"322cbd","hypothesisId":"%s","location":"%s","message":"%s","data":%s,"timestamp":%s}\n' \
+        "$_hid" "$_loc" "$_msg" "${_data:-{}}" "${_epoch}000")
+    { echo "$_line" >> "$LOG"; } 2>/dev/null
+    { echo "$_line" >> "$LOG2"; } 2>/dev/null
+    if [ -n "${PW3_AGENT_LOG:-}" ]; then
+        { echo "$_line" >> "$PW3_AGENT_LOG"; } 2>/dev/null
+    fi
+    { echo "$_line" >> "/Users/shreemit/Developer/Kindle/.cursor/debug-322cbd.log"; } 2>/dev/null
+}
+
+rtc_stamp() {
+    if [ -r /sys/class/rtc/rtc1/since_epoch ]; then
+        cat /sys/class/rtc/rtc1/since_epoch 2>/dev/null
+    elif [ -r /sys/class/rtc/rtc0/since_epoch ]; then
+        cat /sys/class/rtc/rtc0/since_epoch 2>/dev/null
+    else
+        echo ""
+    fi
+}
+
+# After STR the Linux clock drifts ahead of rtc1 (2–4 min overnight).
+# Pull system time back from the RTC that actually ran during suspend.
+sync_system_from_rtc() {
+    _rtc=$(rtc_stamp)
+    _sys=$(date +%s 2>/dev/null)
+    [ -n "$_rtc" ] && [ -n "$_sys" ] || return 1
+    _skew=$((_sys - _rtc))
+    _abs=$_skew
+    [ "$_abs" -lt 0 ] && _abs=$((-_abs))
+    # #region agent log
+    agent_dbg B "clock.sh:sync_system_from_rtc:before" "rtc vs sys before sync" \
+        "{\"sys\":$_sys,\"rtc\":$_rtc,\"skew\":$_skew}"
+    # #endregion
+    # Ignore tiny jitter; refuse hour-scale jumps (would be TZ misuse).
+    if [ "$_abs" -lt 2 ] || [ "$_abs" -gt 3600 ]; then
+        return 0
+    fi
+    if date -s "@$_rtc" >/dev/null 2>&1; then
+        :
+    else
+        hwclock -s -u -f /dev/rtc1 >/dev/null 2>&1 ||
+            hwclock -s -u >/dev/null 2>&1
+    fi
+    _sys2=$(date +%s 2>/dev/null)
+    _rtc2=$(rtc_stamp)
+    _skew2=0
+    if [ -n "$_sys2" ] && [ -n "$_rtc2" ]; then
+        _skew2=$((_sys2 - _rtc2))
+    fi
+    log "synced system from rtc skew=${_skew}s now=${_skew2}s"
+    # #region agent log
+    agent_dbg B "clock.sh:sync_system_from_rtc:after" "rtc vs sys after sync" \
+        "{\"sys\":${_sys2:-0},\"rtc\":\"$_rtc2\",\"skewBefore\":$_skew,\"skewAfter\":$_skew2}"
+    # #endregion
+}
+
+try_ntp_sync() {
+    command -v ntpdate >/dev/null 2>&1 || return 1
+    _pre=$(date +%s 2>/dev/null)
+    ntpdate -s pool.ntp.org >> "$LOG" 2>&1 || ntpdate -s time.nist.gov >> "$LOG" 2>&1 || return 1
+    _post=$(date +%s 2>/dev/null)
+    hwclock -w -u -f /dev/rtc1 >/dev/null 2>&1 || hwclock -w -u >/dev/null 2>&1
+    log "ntpdate pre=$_pre post=$_post"
+    # #region agent log
+    agent_dbg E "clock.sh:try_ntp_sync" "ntpdate" \
+        "{\"pre\":${_pre:-0},\"post\":${_post:-0}}"
+    # #endregion
+}
+# #endregion
+
 trim_log() {
     # The clock runs for days; keep the log from growing without bound.
     for _lf in "$LOG" "$LOG2"; do
@@ -88,6 +167,8 @@ load_config() {
     DEBUG_SECONDS="${DEBUG_SECONDS:-20}"
     USE_SUSPEND="${USE_SUSPEND:-0}"
     WEATHER_CITY="${WEATHER_CITY:-}"
+    WEATHER_LAT="${WEATHER_LAT:-47.62409}"
+    WEATHER_LON="${WEATHER_LON:--122.33567}"
     WEATHER_WIFI="${WEATHER_WIFI:-1}"
     WEATHER_EVERY="${WEATHER_EVERY:-60}"
     FULL_REFRESH_EVERY="${FULL_REFRESH_EVERY:-60}"
@@ -167,6 +248,7 @@ pick_font() {
     FONT_FLAP_MID=50
     FONT_GRID=1
     FONT_DATE_MUL=86
+    FONT_ADVANCE=50
 
     case "$FONT" in
         arcade|mario|game|pixel|pixelify|jersey)
@@ -176,6 +258,7 @@ pick_font() {
                 # Jersey 25: tall pixel digits with clear 2/5/6 shapes.
                 # Slightly narrower date than Pixelify so the header still fits.
                 FONT_DATE_MUL=80
+                FONT_ADVANCE=48
                 FONT_GRID=4
                 # Jersey ink sits at ~0.50em. 64 was for mixed text and left
                 # the flap digits sitting above the hinge line.
@@ -191,6 +274,7 @@ pick_font() {
             if [ -f "$FONT_REG" ]; then
                 # Classic Namco/NES arcade face. Very wide — date is smaller.
                 FONT_DATE_MUL=52
+                FONT_ADVANCE=100
                 FONT_GRID=8
                 FONT_FLAP_MID=50
                 log "Using bundled Press Start 2P (retro)"
@@ -205,6 +289,7 @@ pick_font() {
     if [ -f "$FONT_BOLD" ] && [ -f "$FONT_REG" ]; then
         log "Using bundled Barlow Condensed"
         FONT_FLAP_MID=65
+        FONT_ADVANCE=42
         return 0
     fi
     FONT_BOLD=""
@@ -450,6 +535,11 @@ weather_city_path() {
     echo "$WEATHER_CITY" | sed 's/ /+/g'
 }
 
+weather_url_om() {
+    _proto=${1:-https}
+    echo "${_proto}://api.open-meteo.com/v1/forecast?latitude=${WEATHER_LAT}&longitude=${WEATHER_LON}&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,cloud_cover,wind_speed_10m,wind_direction_10m&minutely_15=precipitation,weather_code&forecast_minutely_15=48&daily=sunrise,sunset&forecast_days=1&timezone=auto&timeformat=unixtime&wind_speed_unit=kmh"
+}
+
 weather_url_j1() {
     _city=$(weather_city_path)
     if [ -n "$_city" ]; then
@@ -469,6 +559,68 @@ weather_url() {
     fi
 }
 
+round_weather_num() {
+    awk -v n="$1" 'BEGIN {
+        if (n == "" || n+0 != n) { print n; exit }
+        if (n >= 0) printf "%d", n + 0.5
+        else printf "%d", n - 0.5
+    }'
+}
+
+deg_to_compass() {
+    _deg=$(round_weather_num "$1")
+    case "$_deg" in
+        ''|*[!0-9-]*) echo ""; return 0 ;;
+    esac
+    _i=$(( ((_deg + 11) * 2 / 45) % 16 ))
+    [ "$_i" -lt 0 ] && _i=$((_i + 16))
+    set -- N NNE NE ENE E ESE SE SSE S SSW SW WSW W WNW NW NNW
+    eval "echo \${$((_i + 1))}"
+}
+
+wmo_to_cond() {
+    case "$1" in
+        0|1) echo CLEAR ;;
+        2) echo CLOUDY ;;
+        3) echo OVERCAST ;;
+        45|48) echo FOG ;;
+        51|53|55|56|57) echo DRIZZLE ;;
+        61|63|65|66|67) echo RAIN ;;
+        71|73|75|77|85|86) echo SNOW ;;
+        80|81|82) echo SHOWERS ;;
+        95|96|99) echo THUNDER ;;
+        *) echo CLOUDY ;;
+    esac
+}
+
+epoch_fmt() {
+    _ep=$1
+    _fo=$2
+    _out=$(date -d "@$_ep" +"$_fo" 2>/dev/null) && [ -n "$_out" ] && { echo "$_out"; return 0; }
+    _out=$(date -r "$_ep" +"$_fo" 2>/dev/null) && [ -n "$_out" ] && { echo "$_out"; return 0; }
+    _out=$(date -D '%s' -d "$_ep" +"$_fo" 2>/dev/null) && [ -n "$_out" ] && { echo "$_out"; return 0; }
+    echo ""
+    return 1
+}
+
+precip_ge_tenth() {
+    awk -v p="$1" 'BEGIN { exit (p + 0 >= 0.1) ? 0 : 1 }'
+}
+
+wmo_is_drizzle() {
+    case "$1" in
+        51|53|55|56|57) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+wmo_is_rain() {
+    case "$1" in
+        51|53|55|56|57|61|63|65|66|67|80|81|82|95|96|99) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
 fmt_sun_short() {
     _s=$(echo "$1" | tr 'a-z' 'A-Z')
     case "$_s" in
@@ -482,13 +634,14 @@ fmt_wind_short() {
 }
 
 board_date_parts() {
-    # "Mon 17 Aug 2026" -> DATE_PRI="17 AUG" DATE_YEAR="2026"
+    # "Mon 17 Aug 2026" -> DATE_PRI="SUN 17 AUG" DATE_YEAR="2026"
     DATE_YEAR=$(echo "$1" | awk '{print $NF}')
     DATE_PRI=$(echo "$1" | awk '{
         n=NF
-        if (n >= 3) printf "%s %s", $(n-2), $(n-1)
+        if (n >= 4) printf "%s %s %s", $1, $(n-2), $(n-1)
+        else if (n >= 3) printf "%s %s", $(n-2), $(n-1)
         else print $0
-    }' | tr 'a-z' 'A-Z' | sed 's/^0//')
+    }' | tr 'a-z' 'A-Z' | sed 's/ 0/ /;s/^0//')
 }
 
 json_first() {
@@ -521,10 +674,67 @@ fmt_rain_hour() {
     fi
 }
 
+fmt_rain_in() {
+    _m=$1
+    if [ "$_m" -le 15 ]; then
+        echo "15M"
+    elif [ "$_m" -le 30 ]; then
+        echo "30M"
+    elif [ "$_m" -le 45 ]; then
+        echo "45M"
+    elif [ "$_m" -le 60 ]; then
+        echo "1H"
+    elif [ "$_m" -le 75 ]; then
+        echo "1H15"
+    elif [ "$_m" -le 90 ]; then
+        echo "1H30"
+    elif [ "$_m" -le 105 ]; then
+        echo "1H45"
+    else
+        echo "2H"
+    fi
+}
+
+fmt_ampm_clock() {
+    _h=$1
+    _m=$2
+    _h=$(dezero "$_h")
+    _m=$(dezero "$_m")
+    if [ "$_h" -eq 0 ]; then
+        _ap=12
+        _suf=AM
+    elif [ "$_h" -lt 12 ]; then
+        _ap=$_h
+        _suf=AM
+    elif [ "$_h" -eq 12 ]; then
+        _ap=12
+        _suf=PM
+    else
+        _ap=$((_h - 12))
+        _suf=PM
+    fi
+    if [ "$_m" -eq 0 ]; then
+        echo "${_ap}${_suf}"
+    else
+        printf '%d:%02d%s' "$_ap" "$_m" "$_suf"
+    fi
+}
+
+fmt_rain_at_epoch() {
+    _h=$(epoch_fmt "$1" '%H')
+    _m=$(epoch_fmt "$1" '%M')
+    [ -n "$_h" ] && [ -n "$_m" ] || { echo "--"; return 0; }
+    if [ "$SHOW_AMPM" = "1" ]; then
+        fmt_ampm_clock "$_h" "$_m"
+    else
+        printf '%02d:%02d' "$(dezero "$_h")" "$(dezero "$_m")"
+    fi
+}
+
 compute_seattle_rain() {
-    # Seattle-specific: rain now, drizzle, dry-until-hour, or gray-and-dry.
+    # Seattle-specific: rain now, drizzle, rain-in / rain-at, or dry sky.
     WEATHER_RAIN_LABEL="DRY"
-    WEATHER_RAIN="DAY"
+    WEATHER_RAIN="CLEAR"
     _cond=$WEATHER_COND
     case "$_cond" in
         *DRIZZLE*)
@@ -538,42 +748,67 @@ compute_seattle_rain() {
             return 0
             ;;
     esac
-    case "$WEATHER_PRECIP" in
-        ''|0|0.0|0.00|--|-) ;;
-        *)
-            WEATHER_RAIN_LABEL="RAIN"
-            WEATHER_RAIN="NOW"
-            return 0
-            ;;
-    esac
+    if precip_ge_tenth "$WEATHER_PRECIP"; then
+        WEATHER_RAIN_LABEL="RAIN"
+        WEATHER_RAIN="NOW"
+        return 0
+    fi
 
+    _now=$(date +%s 2>/dev/null)
+    [ -n "$_now" ] || _now=0
     _nowh=$(dezero "$(date +%H 2>/dev/null)")
     _nowm=$(dezero "$(date +%M 2>/dev/null)")
     _nowx=$((_nowh * 100 + _nowm))
     _next=""
+    _next_kind=""
     for _pair in $WEATHER_HOURLY; do
         _t=${_pair%%:*}
-        _c=${_pair#*:}
+        _rest=${_pair#*:}
+        _p=${_rest%%:*}
+        _code=${_rest#*:}
+        [ "$_code" = "$_rest" ] && _code=""
         case "$_t" in
             ''|*[!0-9]*) continue ;;
         esac
-        case "$_c" in
-            ''|*[!0-9]*) continue ;;
-        esac
-        if [ "$_t" -gt "$_nowx" ] && [ "$_c" -ge 40 ]; then
-            _next=$_t
-            break
+        # Open-Meteo: unix:mm or unix:mm:wmo. wttr: HHMM:chance (time <= 2400).
+        if [ "$_t" -gt 2400 ]; then
+            [ "$_t" -gt "$_now" ] || continue
+            if precip_ge_tenth "$_p" || wmo_is_rain "$_code"; then
+                _next=$_t
+                _next_kind=om
+                break
+            fi
+        else
+            case "$_p" in
+                ''|*[!0-9]*) continue ;;
+            esac
+            if [ "$_t" -gt "$_nowx" ] && [ "$_p" -ge 40 ]; then
+                _next=$_t
+                _next_kind=wttr
+                break
+            fi
         fi
     done
     if [ -n "$_next" ]; then
-        WEATHER_RAIN_LABEL="RAIN AT"
-        WEATHER_RAIN=$(fmt_rain_hour "$_next")
+        if [ "$_next_kind" = "om" ]; then
+            _mins=$(( (_next - _now + 59) / 60 ))
+            if [ "$_mins" -le 120 ]; then
+                WEATHER_RAIN_LABEL="RAIN IN"
+                WEATHER_RAIN=$(fmt_rain_in "$_mins")
+            else
+                WEATHER_RAIN_LABEL="RAIN AT"
+                WEATHER_RAIN=$(fmt_rain_at_epoch "$_next")
+            fi
+        else
+            WEATHER_RAIN_LABEL="RAIN AT"
+            WEATHER_RAIN=$(fmt_rain_hour "$_next")
+        fi
         return 0
     fi
     case "$_cond" in
         *CLOUD*|*OVERCAST*|*FOG*|*MIST*)
-            WEATHER_RAIN_LABEL="CLOUDY"
-            WEATHER_RAIN="DRY"
+            WEATHER_RAIN_LABEL="DRY"
+            WEATHER_RAIN="CLDY"
             ;;
         *)
             WEATHER_RAIN_LABEL="DRY"
@@ -622,12 +857,156 @@ parse_wttr_j1() {
     return 0
 }
 
+parse_open_meteo() {
+    _jfile=$1
+    [ -s "$_jfile" ] || return 1
+    _parsed=$(awk '
+        function needle(key) { return "\"" key "\":" }
+        function grab_obj(s, key,   i, n) {
+            n = needle(key) "{"
+            i = index(s, n)
+            if (i == 0) return ""
+            return substr(s, i + length(n) - 1)
+        }
+        function grab_arr(s, key,   i, n, r, j, ch, depth, out) {
+            n = needle(key) "["
+            i = index(s, n)
+            if (i == 0) return ""
+            r = substr(s, i + length(n))
+            out = ""
+            depth = 1
+            for (j = 1; j <= length(r); j++) {
+                ch = substr(r, j, 1)
+                if (ch == "[") depth++
+                if (ch == "]") {
+                    depth--
+                    if (depth == 0) break
+                }
+                out = out ch
+            }
+            return out
+        }
+        function num(s, key,   i, n, r, j, ch, out) {
+            n = needle(key)
+            i = index(s, n)
+            if (i == 0) return ""
+            r = substr(s, i + length(n))
+            while (substr(r, 1, 1) == " ") r = substr(r, 2)
+            out = ""
+            for (j = 1; j <= length(r); j++) {
+                ch = substr(r, j, 1)
+                if (ch ~ /[0-9.eE+-]/) out = out ch
+                else break
+            }
+            return out
+        }
+        {
+            json = json $0
+        }
+        END {
+            gsub(/[ \t\r\n]/, "", json)
+            cur = grab_obj(json, "current")
+            if (cur == "") exit 1
+            temp = num(cur, "temperature_2m")
+            if (temp == "") exit 1
+            print temp
+            print num(cur, "apparent_temperature")
+            print num(cur, "relative_humidity_2m")
+            print num(cur, "precipitation")
+            print num(cur, "weather_code")
+            print num(cur, "cloud_cover")
+            print num(cur, "wind_speed_10m")
+            print num(cur, "wind_direction_10m")
+            print grab_arr(json, "time")
+            print grab_arr(json, "precipitation")
+            print grab_arr(json, "weather_code")
+            print grab_arr(json, "sunrise")
+            print grab_arr(json, "sunset")
+        }
+    ' "$_jfile") || return 1
+    [ -n "$_parsed" ] || return 1
+    _temp=$(printf '%s\n' "$_parsed" | sed -n '1p')
+    _feels=$(printf '%s\n' "$_parsed" | sed -n '2p')
+    _hum=$(printf '%s\n' "$_parsed" | sed -n '3p')
+    _precip=$(printf '%s\n' "$_parsed" | sed -n '4p')
+    _wmo=$(printf '%s\n' "$_parsed" | sed -n '5p')
+    _cloud=$(printf '%s\n' "$_parsed" | sed -n '6p')
+    _wspd=$(printf '%s\n' "$_parsed" | sed -n '7p')
+    _wdir=$(printf '%s\n' "$_parsed" | sed -n '8p')
+    _times=$(printf '%s\n' "$_parsed" | sed -n '9p')
+    _precs=$(printf '%s\n' "$_parsed" | sed -n '10p')
+    _codes=$(printf '%s\n' "$_parsed" | sed -n '11p')
+    _rise_e=$(printf '%s\n' "$_parsed" | sed -n '12p' | awk -F',' '{print $1}')
+    _set_e=$(printf '%s\n' "$_parsed" | sed -n '13p' | awk -F',' '{print $1}')
+    [ -n "$_temp" ] || return 1
+
+    _temp=$(round_weather_num "$_temp")
+    _feels=$(round_weather_num "$_feels")
+    _wspd=$(round_weather_num "$_wspd")
+    _wmo=$(round_weather_num "$_wmo")
+    _cloud=$(round_weather_num "$_cloud")
+    [ -n "$_cloud" ] || _cloud=0
+    _compass=$(deg_to_compass "$_wdir")
+
+    WEATHER_COND=$(wmo_to_cond "$_wmo")
+    if precip_ge_tenth "$_precip" || wmo_is_rain "$_wmo"; then
+        if wmo_is_drizzle "$_wmo"; then
+            WEATHER_COND="DRIZZLE"
+        elif [ "$WEATHER_COND" = "DRIZZLE" ] || [ "$WEATHER_COND" = "SHOWERS" ] || [ "$WEATHER_COND" = "THUNDER" ] || [ "$WEATHER_COND" = "RAIN" ] || [ "$WEATHER_COND" = "SNOW" ]; then
+            :
+        else
+            WEATHER_COND="RAIN"
+        fi
+    elif [ "${_cloud:-0}" -ge 60 ]; then
+        case "$WEATHER_COND" in
+            CLEAR) WEATHER_COND="OVERCAST" ;;
+        esac
+    fi
+    [ -n "$WEATHER_COND" ] || WEATHER_COND="NO DATA"
+    WEATHER_TEMP="${_temp}°C"
+    WEATHER_FEELS="${_feels}°C"
+    WEATHER_HUM="${_hum}%"
+    WEATHER_WIND=$(echo "${_wspd}KMH ${_compass}" | tr 'a-z' 'A-Z')
+    WEATHER_PRECIP=${_precip:-0}
+    _rise_s=$(epoch_fmt "$_rise_e" '%l:%M%p')
+    [ -n "$_rise_s" ] || _rise_s=$(epoch_fmt "$_rise_e" '%I:%M%p')
+    _set_s=$(epoch_fmt "$_set_e" '%l:%M%p')
+    [ -n "$_set_s" ] || _set_s=$(epoch_fmt "$_set_e" '%I:%M%p')
+    WEATHER_RISE=$(fmt_sun_short "$_rise_s")
+    WEATHER_SET=$(fmt_sun_short "$_set_s")
+    WEATHER_HOURLY=$(awk -v times="$_times" -v precs="$_precs" -v codes="$_codes" '
+        BEGIN {
+            nt = split(times, ta, ",")
+            np = split(precs, pa, ",")
+            nc = split(codes, ca, ",")
+            n = nt
+            if (np < n) n = np
+            if (n > 48) n = 48
+            for (i = 1; i <= n; i++) {
+                t = ta[i]; p = pa[i]; c = ca[i]
+                gsub(/^[ \t]+|[ \t]+$/, "", t)
+                gsub(/^[ \t]+|[ \t]+$/, "", p)
+                gsub(/^[ \t]+|[ \t]+$/, "", c)
+                if (t == "") continue
+                if (p == "") p = "0"
+                if (c == "") printf "%s:%s%s", t, p, (i < n ? " " : "")
+                else printf "%s:%s:%s%s", t, p, c, (i < n ? " " : "")
+            }
+        }
+    ')
+    [ -n "$WEATHER_WIND" ] || WEATHER_WIND="--"
+    [ -n "$WEATHER_FEELS" ] || WEATHER_FEELS="--"
+    [ -n "$WEATHER_HUM" ] || WEATHER_HUM="--"
+    compute_seattle_rain
+    return 0
+}
+
 http_get() {
     _url=$1
     _timeout=${2:-8}
     _body=""
     if command -v curl >/dev/null 2>&1; then
-        _body=$(curl -s -f -m "$_timeout" -A "pw3clock/1.0" "$_url" 2>/dev/null)
+        _body=$(curl -s -L -f -m "$_timeout" -A "pw3clock/1.0" "$_url" 2>/dev/null)
     fi
     if [ -z "$_body" ] && command -v wget >/dev/null 2>&1; then
         _body=$(wget -q -T "$_timeout" -U "pw3clock/1.0" -O - "$_url" 2>/dev/null)
@@ -636,6 +1015,21 @@ http_get() {
 }
 
 fetch_weather() {
+    _jfile="${PW3_TMP}/pw3clock.om"
+    for _proto in https http; do
+        _url=$(weather_url_om "$_proto")
+        _raw=$(http_get "$_url" 15)
+        printf '%s\n' "$_raw" > "$_jfile" 2>/dev/null
+        log "weather om bytes=$(wc -c < "$_jfile" 2>/dev/null) url=$_url"
+        if parse_open_meteo "$_jfile"; then
+            rm -f "$_jfile"
+            save_weather_cache
+            log "weather om cond=$WEATHER_COND temp=$WEATHER_TEMP rain=$WEATHER_RAIN_LABEL $WEATHER_RAIN hourly=$WEATHER_HOURLY"
+            return 0
+        fi
+        rm -f "$_jfile"
+    done
+
     _jfile="${PW3_TMP}/pw3clock.wttr"
     _url=$(weather_url_j1)
     _raw=$(http_get "$_url" 15)
@@ -692,8 +1086,19 @@ update_weather() {
             return 1
         fi
     fi
+    # #region agent log
+    _pre_ntp=$(date '+%H:%M:%S' 2>/dev/null)
+    _pre_epoch=$(date +%s 2>/dev/null)
+    # #endregion
+    try_ntp_sync
     fetch_weather
     _rc=$?
+    # #region agent log
+    _post_ntp=$(date '+%H:%M:%S' 2>/dev/null)
+    _post_epoch=$(date +%s 2>/dev/null)
+    agent_dbg E "clock.sh:update_weather" "after wifi weather" \
+        "{\"pre\":\"$_pre_ntp\",\"post\":\"$_post_ntp\",\"preEpoch\":${_pre_epoch:-0},\"postEpoch\":${_post_epoch:-0},\"rc\":$_rc}"
+    # #endregion
     # Always drop the radio after a fetch — leaving WiFi up drains the pack.
     disable_wifi
     return $_rc
@@ -853,6 +1258,25 @@ print_ot() {
     return 0
 }
 
+print_ot_fit() {
+    # Same args as print_ot. Shrinks px until the string fits left..right.
+    _ffont="$1"
+    _fpx="$2"
+    _ftop="$3"
+    _fl="$4"
+    _fr="$5"
+    _ftxt="$6"
+    _fc="$7"
+    _fbox=$((VIEW_W - _fl - _fr))
+    _fadv=${FONT_ADVANCE:-50}
+    _fneed=$(( ${#_ftxt} * _fpx * _fadv / 100 ))
+    while [ "$_fneed" -gt "$_fbox" ] && [ "$_fpx" -gt 36 ]; do
+        _fpx=$((_fpx - 8))
+        _fneed=$(( ${#_ftxt} * _fpx * _fadv / 100 ))
+    done
+    print_ot "$_ffont" "$_fpx" "$_ftop" "$_fl" "$_fr" "$_ftxt" "$_fc"
+}
+
 draw_flap() {
     # left top w h digit
     _fl=$1
@@ -906,70 +1330,6 @@ draw_battery() {
     fi
 }
 
-print_ot_ink() {
-    # Temporarily swap fg/bg so inverted week cells can print in paper on ink.
-    _oi=$INK
-    _op=$PAPER
-    INK=$1
-    PAPER=$2
-    shift 2
-    print_ot "$@"
-    INK=$_oi
-    PAPER=$_op
-}
-
-draw_week_cell() {
-    # left top w h letter selected
-    _wl=$1
-    _wt=$2
-    _ww=$3
-    _wh=$4
-    _wch=$5
-    _won=$6
-    if [ "$_won" = "1" ]; then
-        fill_rect "$INK" "$_wt" "$_wl" "$_ww" "$_wh"
-        _wfg=$PAPER
-        _wbg=$INK
-    else
-        outline_rect "$_wt" "$_wl" "$_ww" "$_wh" 3
-        _wfg=$INK
-        _wbg=$PAPER
-    fi
-    _wsize=$((_wh * 48 / 100))
-    _wtop=$((_wt + _wh / 2 - _wsize * FONT_MID / 100))
-    [ "$_wtop" -lt "$_wt" ] && _wtop=$_wt
-    print_ot_ink "$_wfg" "$_wbg" "$FONT_BOLD" "$_wsize" "$_wtop" \
-        "$_wl" $((VIEW_W - _wl - _ww)) "$_wch" 1
-}
-
-draw_week() {
-    # top  — seven small flaps, Monday first, today inverted.
-    _wkt=$1
-    _wkh=$2
-    _wkgap=10
-    _wkcell=$_wkh
-    _wktotal=$((_wkcell * 7 + _wkgap * 6))
-    _area=$((VIEW_W * 42 / 100))
-    if [ "$_wktotal" -gt "$_area" ]; then
-        _wkcell=$(( (_area - _wkgap * 6) / 7 ))
-        _wktotal=$((_wkcell * 7 + _wkgap * 6))
-    fi
-    _wkx=$(( (VIEW_W - _wktotal) / 2 ))
-    _today=$(date +%u 2>/dev/null)
-    case "$_today" in
-        [1-7]) ;;
-        *) _today=1 ;;
-    esac
-    _d=1
-    for _ch in M T W T F S S; do
-        _sel=0
-        [ "$_d" -eq "$_today" ] && _sel=1
-        draw_week_cell "$_wkx" "$_wkt" "$_wkcell" "$_wkh" "$_ch" "$_sel"
-        _wkx=$((_wkx + _wkcell + _wkgap))
-        _d=$((_d + 1))
-    done
-}
-
 draw_colon() {
     # left top w h
     _cl=$1
@@ -1003,71 +1363,68 @@ draw_airport() {
     OT_FAILED=0
     board_date_parts "$_date"
     _margin=48
-    _hint_h=28
+    _hint_h=34
     _gap_v=16
-    _week_h=56
-    _box_h=$((H * 26 / 100))
-    [ "$_box_h" -lt 220 ] && _box_h=220
+    _box_h=$((H * 36 / 100))
+    [ "$_box_h" -lt 300 ] && _box_h=300
 
-    _exit_w=190
-    _exit_h=70
-    _exit_l=$((W - 40 - _exit_w))
     _bat_w=130
     _bat_h=48
     # Leave room left of the icon for "100%" (drawn inside draw_battery).
     _bat_pct_room=$((_bat_h * 72 / 100 * 30 / 10 + 14))
-    _bat_l=$((_exit_l - _bat_w - 40))
+    _bat_l=$((W - _margin - _bat_w))
     _bat_block_l=$((_bat_l - _bat_pct_room))
     [ "$_bat_block_l" -lt 0 ] && _bat_block_l=0
 
-    # Primary type is the air-temp size. Feels, rain value and date match it.
-    _primary=$((_box_h * 60 / 100))
-    _caption=$((_box_h * 12 / 100))
-    _secondary=$((_box_h * 22 / 100))
-    [ "$_caption" -lt 22 ] && _caption=22
-    [ "$_secondary" -lt 36 ] && _secondary=36
+    # Weather values grow with the panel. Date stays in the header band.
+    _primary=$((_box_h * 62 / 100))
+    _caption=$((_box_h * 15 / 100))
+    _secondary=$((_box_h * 24 / 100))
+    [ "$_caption" -lt 28 ] && _caption=28
+    [ "$_secondary" -lt 42 ] && _secondary=42
     [ "$_secondary" -ge "$_primary" ] && _secondary=$((_primary * 40 / 100))
 
-    _header=$((16 + _primary * 82 / 100))
+    _date_px=$((H * 16 / 100))
+    [ "$_date_px" -lt 140 ] && _date_px=140
+    [ "$_date_px" -gt 190 ] && _date_px=190
+    _year_size=$((_date_px * 40 / 100))
+    [ "$_year_size" -lt 42 ] && _year_size=42
+
+    _header=$((16 + _date_px * 82 / 100))
     [ "$_header" -lt 120 ] && _header=120
     _box_top=$((H - 8 - _hint_h - _box_h))
-    _week_top=$((_box_top - _gap_v - _week_h))
-    _cap_top=$((_box_top + 14))
+    _cap_top=$((_box_top + 18))
     _val_top=$((_box_top + _box_h * 30 / 100))
-    _foot_top=$((_box_top + _box_h - _secondary - 16))
+    _foot_top=$((_box_top + _box_h - _secondary - 20))
     while [ $((_val_top + _primary + _primary / 2)) -ge "$H" ]; do
         _primary=$((_primary - 8))
         [ "$_primary" -lt 80 ] && break
-        _header=$((16 + _primary * 82 / 100))
         _secondary=$((_primary * 32 / 100))
-        [ "$_secondary" -lt 36 ] && _secondary=36
+        [ "$_secondary" -lt 42 ] && _secondary=42
         [ "$_secondary" -ge "$_primary" ] && _secondary=$((_primary * 40 / 100))
-        _foot_top=$((_box_top + _box_h - _secondary - 16))
+        _foot_top=$((_box_top + _box_h - _secondary - 20))
     done
 
-    _exit_t=$(((_header - _exit_h) / 2))
-    [ "$_exit_t" -lt 8 ] && _exit_t=8
-    outline_rect "$_exit_t" "$_exit_l" "$_exit_w" "$_exit_h" 3
-    printf '%s %s %s %s\n' "$_exit_l" "$_exit_t" "$_exit_w" "$_exit_h" > "$EXIT_RECT" 2>/dev/null
+    rm -f "$EXIT_RECT"
 
     _hdr_mid=$((_header / 2))
     _bat_t=$((_hdr_mid - _bat_h / 2))
-    _date_top=$((_hdr_mid - _primary * FONT_FLAP_MID / 100))
+    [ "$_bat_t" -lt 8 ] && _bat_t=8
+    _date_top=$((_hdr_mid - _date_px * FONT_FLAP_MID / 100))
     [ "$_date_top" -lt 8 ] && _date_top=8
-    _year_size=$_secondary
     _year_top=$((_hdr_mid - _year_size * FONT_MID / 100))
     _date_right=$((W - _bat_block_l + 24))
-    # Year sits after the day+month. 17 AUG is about 3.2em of Jersey.
-    _year_left=$((_margin + _primary * 32 / 10))
+    # Year sits after weekday+day+month. SUN 17 AUG is about 5.2em of Jersey.
+    _year_left=$((_margin + _date_px * 52 / 10))
+    _year_limit=$((_bat_block_l - _year_size * 4))
+    [ "$_year_left" -gt "$_year_limit" ] && _year_left=$_year_limit
 
-    print_ot "$FONT_BOLD" 36 $((_hdr_mid - 36 * FONT_MID / 100)) \
-        "$_exit_l" $((W - _exit_l - _exit_w)) "EXIT" 1
     draw_battery "$_bat_l" "$_bat_t" "$_bat_w" "$_bat_h" "$_bat"
-    print_ot "$FONT_BOLD" "$_primary" "$_date_top" "$_margin" "$_date_right" "$DATE_PRI" 0
+    print_ot "$FONT_BOLD" "$_date_px" "$_date_top" "$_margin" "$_date_right" "$DATE_PRI" 0
     print_ot "$FONT_REG" "$_year_size" "$_year_top" "$_year_left" $((W - _bat_block_l + 8)) "$DATE_YEAR" 0
 
     _band_top=$((_header + _gap_v))
-    _band_bot=$((_week_top - _gap_v))
+    _band_bot=$((_box_top - _gap_v))
     _cell_h=$((_band_bot - _band_top))
 
     _area_w=$((W - _margin - _margin))
@@ -1105,38 +1462,34 @@ draw_airport() {
         draw_flap "$_x" "$_cells_top" "$_cell_w" "$_cell_h" "$_m2"
     fi
 
-    draw_week "$_week_top" "$_week_h"
-    _wk_mid=$((_week_top + _week_h / 2 - _secondary * FONT_MID / 100))
-    print_ot "$FONT_REG" "$_secondary" "$_wk_mid" "$_margin" $((W * 58 / 100)) "RISE $WEATHER_RISE" 0
-    print_ot "$FONT_REG" "$_secondary" "$_wk_mid" $((W * 58 / 100)) "$_margin" "SET $WEATHER_SET" 1
-
     _box_w=$((W - _margin - _margin))
     outline_rect "$_box_top" "$_margin" "$_box_w" "$_box_h" 3
     # print_ot centres between `left` and W-`right`, so each column's right
     # value is the distance from the screen edge to that column's right edge.
     _col_w=$((_box_w / 3))
-    _c0l=$_margin
-    _c0r=$((W - _margin - _col_w))
-    _c1l=$((_margin + _col_w))
-    _c1r=$((W - _margin - _col_w - _col_w))
-    _c2l=$((_margin + _col_w + _col_w))
-    _c2r=$_margin
+    _col_pad=18
+    _c0l=$((_margin + _col_pad))
+    _c0r=$((W - _margin - _col_w + _col_pad))
+    _c1l=$((_margin + _col_w + _col_pad))
+    _c1r=$((W - _margin - _col_w - _col_w + _col_pad))
+    _c2l=$((_margin + _col_w + _col_w + _col_pad))
+    _c2r=$((_margin + _col_pad))
 
-    print_ot "$FONT_REG" "$_caption" "$_cap_top" "$_c0l" "$_c0r" "FEELS" 1
-    print_ot "$FONT_REG" "$_caption" "$_cap_top" "$_c1l" "$_c1r" "AIR" 1
-    print_ot "$FONT_REG" "$_caption" "$_cap_top" "$_c2l" "$_c2r" "$WEATHER_RAIN_LABEL" 1
+    print_ot_fit "$FONT_REG" "$_caption" "$_cap_top" "$_c0l" "$_c0r" "FEELS" 1
+    print_ot_fit "$FONT_REG" "$_caption" "$_cap_top" "$_c1l" "$_c1r" "AIR" 1
+    print_ot_fit "$FONT_REG" "$_caption" "$_cap_top" "$_c2l" "$_c2r" "$WEATHER_RAIN_LABEL" 1
 
-    print_ot "$FONT_BOLD" "$_primary" "$_val_top" "$_c0l" "$_c0r" "$WEATHER_FEELS" 1
-    print_ot "$FONT_BOLD" "$_primary" "$_val_top" "$_c1l" "$_c1r" "$WEATHER_TEMP" 1
-    print_ot "$FONT_BOLD" "$_primary" "$_val_top" "$_c2l" "$_c2r" "$WEATHER_RAIN" 1
+    print_ot_fit "$FONT_BOLD" "$_primary" "$_val_top" "$_c0l" "$_c0r" "$WEATHER_FEELS" 1
+    print_ot_fit "$FONT_BOLD" "$_primary" "$_val_top" "$_c1l" "$_c1r" "$WEATHER_TEMP" 1
+    print_ot_fit "$FONT_BOLD" "$_primary" "$_val_top" "$_c2l" "$_c2r" "$WEATHER_RAIN" 1
 
     _wind="WIND $(fmt_wind_short)"
     _hum="HUM $WEATHER_HUM"
-    print_ot "$FONT_REG" "$_secondary" "$_foot_top" "$_c0l" "$_c0r" "$_wind" 1
-    print_ot "$FONT_REG" "$_secondary" "$_foot_top" "$_c2l" "$_c2r" "$_hum" 1
+    print_ot_fit "$FONT_REG" "$_secondary" "$_foot_top" "$_c0l" "$_c0r" "$_wind" 1
+    print_ot_fit "$FONT_REG" "$_secondary" "$_foot_top" "$_c2l" "$_c2r" "$_hum" 1
 
     _hint="$WEATHER_COND · TAP 3X TO QUIT"
-    print_ot "$FONT_REG" 20 $((_box_top + _box_h + 6)) "$_margin" "$_margin" "$_hint" 1
+    print_ot "$FONT_REG" 24 $((_box_top + _box_h + 6)) "$_margin" "$_margin" "$_hint" 1
 
     "$FBINK" -q -w -s
 }
@@ -1164,6 +1517,15 @@ draw_clock() {
     fi
     compute_seattle_rain
     log "draw time=$_time date=$_date bat=$_bat weather=$WEATHER_COND $WEATHER_TEMP rain=$WEATHER_RAIN_LABEL $WEATHER_RAIN fbink=$HAVE_FBINK ${VIEW_W}x${VIEW_H}"
+    # #region agent log
+    _sys24=$(date '+%H:%M:%S' 2>/dev/null)
+    _epoch=$(date +%s 2>/dev/null)
+    _rtc=$(rtc_stamp)
+    _quiet_now=0
+    is_quiet_hours && _quiet_now=1
+    agent_dbg D "clock.sh:draw_clock" "drawn face" \
+        "{\"time\":\"$_time\",\"ampm\":\"$CLOCK_AMPM\",\"sys24\":\"$_sys24\",\"epoch\":${_epoch:-0},\"rtc\":\"$_rtc\",\"full\":$_full,\"quiet\":$_quiet_now}"
+    # #endregion
 
     if [ "$HAVE_FBINK" -eq 1 ] && [ -n "$FONT_BOLD" ]; then
         if ! draw_airport "$_time" "$_date" "$_bat" "$_full"; then
@@ -1207,8 +1569,8 @@ kill_touch_watcher() {
 start_touch_watcher() {
     kill_touch_watcher
     rm -f "$EXIT_FLAG"
-    if [ ! -f "$EXIT_RECT" ] || [ ! -f "$FBINFO" ]; then
-        log "skip touch watcher (no rect/fbinfo)"
+    if [ ! -f "$FBINFO" ]; then
+        log "skip touch watcher (no fbinfo)"
         return 1
     fi
     TOUCH_MAP="${TOUCH_MAP:-1}"
@@ -1223,12 +1585,37 @@ sleep_for_secs() {
     _secs="$1"
     [ "$_secs" -gt 0 ] || _secs=1
     log "sleeping ${_secs}s (suspend=$USE_SUSPEND)"
+    # #region agent log
+    _pre_e=$(date +%s 2>/dev/null)
+    _pre_t=$(date '+%H:%M:%S' 2>/dev/null)
+    _pre_rtc=$(rtc_stamp)
+    agent_dbg A "clock.sh:sleep_for_secs:before" "before sleep/suspend" \
+        "{\"secs\":$_secs,\"suspend\":\"$USE_SUSPEND\",\"sys\":\"$_pre_t\",\"epoch\":${_pre_e:-0},\"rtc\":\"$_pre_rtc\"}"
+    # #endregion
     if [ "$USE_SUSPEND" = "1" ]; then
+        echo 0 > /sys/class/rtc/rtc1/wakealarm 2>/dev/null
         rtcwake -d /dev/rtc1 -m no -s "$_secs" >> "$LOG" 2>&1
         echo mem > /sys/power/state
+        sync_system_from_rtc
     else
         sleep "$_secs"
     fi
+    # #region agent log
+    _post_e=$(date +%s 2>/dev/null)
+    _post_t=$(date '+%H:%M:%S' 2>/dev/null)
+    _post_rtc=$(rtc_stamp)
+    _delta=0
+    if [ -n "$_pre_e" ] && [ -n "$_post_e" ]; then
+        _delta=$((_post_e - _pre_e))
+    fi
+    _slip=$((_secs - _delta))
+    _post_skew=0
+    if [ -n "$_post_e" ] && [ -n "$_post_rtc" ]; then
+        _post_skew=$((_post_e - _post_rtc))
+    fi
+    agent_dbg A "clock.sh:sleep_for_secs:after" "after sleep/suspend" \
+        "{\"secs\":$_secs,\"suspend\":\"$USE_SUSPEND\",\"sys\":\"$_post_t\",\"epoch\":${_post_e:-0},\"rtc\":\"$_post_rtc\",\"delta\":$_delta,\"slip\":$_slip,\"skew\":$_post_skew}"
+    # #endregion
 }
 
 # Sleep until the next N-minute boundary (aligned to midnight).
@@ -1246,6 +1633,10 @@ sleep_until_next_tick() {
     if [ "$_secs" -lt 3 ]; then
         _secs=$((_secs + _span))
     fi
+    # #region agent log
+    agent_dbg C "clock.sh:sleep_until_next_tick" "tick math" \
+        "{\"interval\":$_interval,\"h\":$_ih,\"m\":$_im,\"s\":$_is,\"into\":$_into,\"span\":$_span,\"secs\":$_secs,\"quietStart\":\"$QUIET_START\",\"quietEnd\":\"$QUIET_END\"}"
+    # #endregion
     sleep_for_secs "$_secs"
 }
 
@@ -1295,12 +1686,10 @@ dump_selftest() {
     cat /proc/bus/input/devices >> "$LOG" 2>&1
     ls -l /dev/input >> "$LOG" 2>&1
     log "--- text probes (every size the board uses) ---"
-    probe_one 20 "$FONT_REG" "OVERCAST · TAP 3X TO QUIT"
-    probe_one 36 "$FONT_BOLD" "EXIT"
-    probe_one 52 "$FONT_REG" "RISE 6:12AM"
+    probe_one 24 "$FONT_REG" "OVERCAST · TAP 3X TO QUIT"
     probe_one 52 "$FONT_REG" "WIND 8K NW"
     probe_one 54 "$FONT_REG" "RAIN AT"
-    probe_one 168 "$FONT_BOLD" "17 AUG"
+    probe_one 168 "$FONT_BOLD" "SUN 17 AUG"
     probe_one 168 "$FONT_BOLD" "18°C"
     probe_one 168 "$FONT_BOLD" "20°C"
     probe_one 168 "$FONT_BOLD" "9PM"

@@ -16,9 +16,10 @@ TIME_FORMAT="%I:%M"
 # Airport-style date. Size is large on purpose.
 DATE_FORMAT="%a %d %b %Y"
 
-# Weather city for wttr.in. Leave empty to guess from IP.
-# Examples: Seattle  London  "San Francisco"
-WEATHER_CITY="Seattle"
+# Weather coordinates for Open-Meteo (no API key). City is a label only.
+WEATHER_LAT="47.62409"
+WEATHER_LON="-122.33567"
+WEATHER_CITY="South Lake Union"
 
 # 1 = turn WiFi on briefly to fetch weather. 0 = only fetch if already online.
 WEATHER_WIFI=1
@@ -46,7 +47,7 @@ USE_SUSPEND=1
 # auto = try 0,1,2,3 until width > height. Or set 0, 1, 2, or 3.
 ROTATE=auto
 
-# Which corner the EXIT box responds to. Only matters if tapping EXIT does
-# nothing but "tap 3 times anywhere" works. Try 2, then 3, then 4.
+# Which corner mapped taps use. Only matters if 3-tap quit feels rotated.
+# Try 2, then 3, then 4.
 # pw3clock.log prints "tap raw=... fb=..." for every tap to help pick.
 TOUCH_MAP=1
