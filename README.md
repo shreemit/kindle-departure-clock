@@ -4,18 +4,15 @@ An airport departure-board clock for a **Kindle Paperwhite 3 (7th gen)** on
 firmware **5.16.2.1.1**, held in landscape.
 
 ```
-  17 AUG 2026             87% [====]   [ EXIT ]
+  SUN 17 AUG 2026                      87% [====]
 
      ┌────┐ ┌────┐   ▪   ┌────┐ ┌────┐
     │ 0  │ │ 2  │       │ 0  │ │ 8  │
      └────┘ └────┘  PM   └────┘ └────┘
 
-  RISE 6:12AM   ┌─┐┌─┐┌─┐┌─┐┌─┐┌─┐┌─┐   SET 8:20PM
-                │M││T││W││T││F││S││S│
-
    ┌──────────────────────────────────────────┐
-   │  FEELS          AIR          RAIN AT     │
-   │  18°C           20°C         9PM         │
+   │  FEELS          AIR          RAIN IN     │
+   │  18°C           20°C         1H30        │
    │  WIND 8K NW                  HUM 62%     │
    └──────────────────────────────────────────┘
            OVERCAST · TAP 3X TO QUIT
@@ -48,22 +45,19 @@ Set the Kindle's own clock in Settings first; the board just displays it.
 | --- | --- |
 | Check it works | KUAL → **PW3 Clock** → **1. Self-test** |
 | Start | KUAL → **PW3 Clock** → **2. Start clock** |
-| Stop | Tap **EXIT**, or tap anywhere **3 times** |
+| Stop | Tap anywhere **3 times** |
 
 Starting stops the Kindle UI so the board can keep the screen, and rotates the
-framebuffer to landscape. **Turn the Kindle sideways** — EXIT belongs in the
-top-right.
+framebuffer to landscape. **Turn the Kindle sideways.**
 
 The self-test draws over the running Kindle UI for 20 seconds without stopping
 it, and writes `pw3clock.log` to the Kindle's drive root. Run it first.
 
 ### Stopping
 
-Tapping **EXIT** is the normal way. Tapping **anywhere 3 times** within a few
-seconds also works and needs no touch-coordinate mapping, so it is the reliable
-fallback if EXIT is not registering on your device.
+Tapping **anywhere 3 times** within a few seconds stops the clock.
 
-If neither responds, hold **power for ~10 seconds**, or plug in over USB and
+If that does not respond, hold **power for ~10 seconds**, or plug in over USB and
 create an empty file named `pw3clock.STOP` in the drive root.
 
 ## Settings
@@ -73,10 +67,10 @@ All in `extensions/pw3clock/config.sh`. Restart the clock to apply.
 | Setting | Default | Notes |
 | --- | --- | --- |
 | `THEME` | `light` | `light` is black on white. `dark` is white on black. |
-| `FONT` | `arcade` | `arcade` = Jersey 25 pixel (clearest digits). `retro` = Press Start 2P. `barlow` = airport condensed. |
 | `TIME_FORMAT` | `%I:%M` | `%I` is 12-hour and adds AM/PM under the colon. `%H` is 24-hour with no marker. Must stay four digits and a colon. |
 | `DATE_FORMAT` | `%a %d %b %Y` | Any busybox `date` format. Drawn in caps. |
-| `WEATHER_CITY` | `Seattle` | Empty guesses from your IP. Quote names with spaces. |
+| `WEATHER_LAT` / `WEATHER_LON` | `47.62409` / `-122.33567` | Open-Meteo coordinates (South Lake Union). No API key. |
+| `WEATHER_CITY` | `South Lake Union` | Label only; used if Open-Meteo fails and wttr.in is the fallback. Quote names with spaces. |
 | `WEATHER_WIFI` | `1` | `1` briefly enables WiFi to refresh. `0` only fetches if already online. Radio is always turned off after a fetch. |
 | `WEATHER_EVERY` | `60` | Minutes between weather refreshes. Skipped during quiet hours. |
 | `FULL_REFRESH_EVERY` | `60` | Minutes between flashing full refreshes during the day. Skipped while quiet. |
@@ -89,9 +83,10 @@ All in `extensions/pw3clock/config.sh`. Restart the clock to apply.
 
 ## Weather
 
-One request to wttr.in per refresh returns current conditions plus today's
-hourly chance of rain, so the extra readings cost no additional wake time.
-Metric only. If a fetch fails the previous values stay on screen.
+One request to [Open-Meteo](https://open-meteo.com/) per refresh returns current
+conditions plus 12 hours of 15-minute precipitation (HRRR over the US). No API
+key. Metric only. If that fetch fails, the clock falls back to wttr.in. If both
+fail the previous values stay on screen.
 
 The right-hand complication is Seattle-flavoured rain, not humidity:
 
@@ -99,11 +94,12 @@ The right-hand complication is Seattle-flavoured rain, not humidity:
 | --- | --- |
 | `RAIN` / `NOW` | Raining |
 | `DRIZZLE` / `NOW` | Fine Seattle rain |
-| `RAIN AT` / `6PM` | Dry now; rain likely from that hour (≥40%) |
-| `CLOUDY` / `DRY` | Overcast, no rain coming |
-| `DRY` / `CLEAR` | Sunny, no rain coming |
+| `RAIN IN` / `1H30` | Dry now; rain within 2 hours (15-minute steps) |
+| `RAIN AT` / `6PM` | Dry now; rain later in the 12-hour window (hour of first wet slot) |
+| `DRY` / `CLDY` | No rain in the next 12 hours, overcast |
+| `DRY` / `CLEAR` | No rain in the next 12 hours, not overcast |
 
-Humidity, wind, sunrise and sunset are secondary. The weekday strip is Monday–Sunday, with today filled. Date is `17 AUG` at primary size; the weekday lives on that strip.
+Humidity and wind are secondary. Date is `SUN 17 AUG` at header size, with the year beside it.
 
 ## Refresh and battery
 
@@ -140,11 +136,11 @@ python3 -m venv .venv && ./.venv/bin/pip install Pillow
 Defaults to the live time in your configured format. Override anything:
 
 ```
-THEME_OVERRIDE=dark FONT_OVERRIDE=barlow TIME=09:05 TEMP="-15°C" FEELS="-19°C" HUM=88% BAT=8 \
+THEME_OVERRIDE=dark TIME=09:05 TEMP="-15°C" FEELS="-19°C" HUM=88% BAT=8 \
   sh tools/preview.sh out.png
 ```
 
-Accepted: `THEME_OVERRIDE`, `FONT_OVERRIDE`, `TIME`, `AMPM`, `DATE`, `BAT`, `TEMP`, `FEELS`,
+Accepted: `THEME_OVERRIDE`, `TIME`, `AMPM`, `DATE`, `BAT`, `TEMP`, `FEELS`,
 `HUM`, `COND`, `WIND`, `PRECIP`, `HOURLY`, `RAIN`, `RAIN_LABEL`, `RISE`, `SET`, `W`, `H`.
 
 `tools/fbink-sim.py` stands in for the FBInk CLI. It deliberately reproduces
@@ -166,9 +162,8 @@ back to the built-in bitmap font; the rest of the board is unaffected.
 
 **Board is portrait, or upside down.** Set `ROTATE` to `0`–`3` in `config.sh`.
 
-**EXIT does nothing.** Use the 3-tap gesture. The log records
-`tap raw=... fb=...` for every tap; compare `fb=` against the EXIT box position
-it logs at startup and set `TOUCH_MAP` accordingly.
+**3-tap quit does nothing.** The log records `tap raw=... fb=...` for every
+tap. Set `TOUCH_MAP` if the coordinates look rotated.
 
 **Nothing happens at all, no log.** The folder is probably nested one level too
 deep. Check `extensions/pw3clock/config.xml` exists.
@@ -195,10 +190,9 @@ Third-party components are bundled and keep their own licences:
 | Component | Licence | Source |
 | --- | --- | --- |
 | `bin/fbink` | GPL-3.0-or-later | [NiLuJe/FBInk](https://github.com/NiLuJe/FBInk), via the KOReader `kindlepw2` build |
-| `fonts/BarlowCondensed-*.ttf` | SIL OFL 1.1 | [jpt/barlow](https://github.com/jpt/barlow) |
 | `fonts/Jersey25-Regular.ttf` | SIL OFL 1.1 | [Google Fonts / Jersey 25](https://github.com/google/fonts/tree/main/ofl/jersey25) |
-| `fonts/PressStart2P-Regular.ttf` | SIL OFL 1.1 | [CodeMan38 / Press Start 2P](https://github.com/google/fonts/tree/main/ofl/pressstart2p) |
 
 The scripts run `fbink` as a separate executable rather than linking against
 it, so they are not a derivative work of it. Weather comes from
-[wttr.in](https://wttr.in) at runtime. Full detail in `CREDITS`.
+[Open-Meteo](https://open-meteo.com/) at runtime (wttr.in as fallback). Full
+detail in `CREDITS`.

@@ -18,28 +18,17 @@ build: it will fail to start and the clock will silently fall back to eips.
 As this binary is distributed under the GPL, its complete corresponding source
 is available from the FBInk repository above.
 
-fonts/BarlowCondensed-Regular.ttf
-fonts/BarlowCondensed-SemiBold.ttf
----------------------------------
-Barlow by Jeremy Tribby — https://github.com/jpt/barlow
-Licensed under the SIL Open Font License 1.1.
-Full licence text: fonts/BarlowOFL.txt
-
 fonts/Jersey25-Regular.ttf
 ---------------------------------
 Jersey 25 by Google Fonts contributors — https://github.com/google/fonts/tree/main/ofl/jersey25
 Licensed under the SIL Open Font License 1.1.
 Full licence text: fonts/JerseyOFL.txt
 
-fonts/PressStart2P-Regular.ttf
----------------------------------
-Press Start 2P by Cody "CodeMan38" Boisclair — https://github.com/google/fonts/tree/main/ofl/pressstart2p
-Licensed under the SIL Open Font License 1.1.
-Full licence text: fonts/PressStart2POFL.txt
-
 Weather data
 ------------
-Fetched at runtime from https://wttr.in (metric). Not redistributed here.
+Fetched at runtime from https://open-meteo.com (CC BY 4.0 attribution;
+non-commercial use, no API key). Falls back to https://wttr.in if needed.
+Not redistributed here.
 
 Everything else in this repository — the shell scripts under bin/, the KUAL
 extension metadata, and the desktop preview harness under tools/ — was written

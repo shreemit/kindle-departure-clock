@@ -4,7 +4,7 @@
 #   tools/preview.sh [output.png]
 #
 # Env overrides:
-#   THEME_OVERRIDE=dark  FONT_OVERRIDE=barlow  TIME=09:05  DATE="Mon 17 Aug 2026"
+#   THEME_OVERRIDE=dark  TIME=09:05  DATE="Mon 17 Aug 2026"
 #   BAT=50  COND=SUNNY  TEMP=20°C  WIND="8 KM/H"  W=1448  H=1072
 
 set -e
@@ -41,9 +41,6 @@ if [ -n "$THEME_OVERRIDE" ]; then
     THEME="$THEME_OVERRIDE"
     apply_theme
 fi
-if [ -n "$FONT_OVERRIDE" ]; then
-    FONT="$FONT_OVERRIDE"
-fi
 pick_font
 
 # Default to the live clock rendered through the configured formats, so the
@@ -60,7 +57,9 @@ WEATHER_WIND=${WIND:-8K NW}
 WEATHER_FEELS=${FEELS:-18°C}
 WEATHER_HUM=${HUM:-62%}
 WEATHER_PRECIP=${PRECIP:-0.0}
-WEATHER_HOURLY=${HOURLY:-"0:10 300:10 600:10 900:12 1200:15 1500:20 1800:70 2100:40"}
+_now=$(date +%s)
+# Open-Meteo cache shape: unix:mm:wmo — default rain in ~90 minutes.
+WEATHER_HOURLY=${HOURLY:-"$_now:0.00:3 $((_now + 1800)):0.00:3 $((_now + 5400)):0.20:51 $((_now + 10800)):0.40:61"}
 WEATHER_RISE=${RISE:-6:12AM}
 WEATHER_SET=${SET:-8:20PM}
 if [ -n "${RAIN:-}" ]; then
