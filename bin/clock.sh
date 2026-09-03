@@ -689,13 +689,13 @@ fmt_ampm_clock() {
 }
 
 fmt_rain_at_epoch() {
+    # Hour only — drop :15 so 6:15PM and 6:00PM both read 6PM.
     _h=$(epoch_fmt "$1" '%H')
-    _m=$(epoch_fmt "$1" '%M')
-    [ -n "$_h" ] && [ -n "$_m" ] || { echo "--"; return 0; }
+    [ -n "$_h" ] || { echo "--"; return 0; }
     if [ "$SHOW_AMPM" = "1" ]; then
-        fmt_ampm_clock "$_h" "$_m"
+        fmt_ampm_clock "$_h" 0
     else
-        printf '%02d:%02d' "$(dezero "$_h")" "$(dezero "$_m")"
+        printf '%02d:00' "$(dezero "$_h")"
     fi
 }
 

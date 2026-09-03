@@ -95,9 +95,9 @@ The right-hand complication is Seattle-flavoured rain, not humidity:
 | `RAIN` / `NOW` | Raining |
 | `DRIZZLE` / `NOW` | Fine Seattle rain |
 | `RAIN IN` / `1H30` | Dry now; rain within 2 hours (15-minute steps) |
-| `RAIN AT` / `6:15PM` | Dry now; rain later in the 12-hour window |
-| `DRY` / `CLDY` | Overcast, no rain coming |
-| `DRY` / `CLEAR` | Clear, no rain coming |
+| `RAIN AT` / `6PM` | Dry now; rain later in the 12-hour window (hour of first wet slot) |
+| `DRY` / `CLDY` | No rain in the next 12 hours, overcast |
+| `DRY` / `CLEAR` | No rain in the next 12 hours, not overcast |
 
 Humidity and wind are secondary. Date is `SUN 17 AUG` at header size, with the year beside it.
 
