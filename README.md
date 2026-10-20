@@ -12,7 +12,7 @@ firmware **5.16.2.1.1**, held in landscape.
 
    ┌──────────────────────────────────────────┐
    │  FEELS          AIR          RAIN        │
-   │  18°C           20°C         9:30PM      │
+   │  18°C           20°C         9PM         │
    │  WIND 8K NW                  HUM 62%     │
    └──────────────────────────────────────────┘
            OVERCAST · TAP 3X TO QUIT
@@ -94,7 +94,7 @@ The right-hand complication is Seattle-flavoured rain, not humidity:
 | --- | --- |
 | `RAIN` / `NOW` | Raining |
 | `DRIZZLE` / `NOW` | Fine Seattle rain |
-| `RAIN` / `9:30PM` | Dry now; clock time the next rain starts. On the hour this is `9PM`. A 24-hour face uses `21:30`. |
+| `RAIN` / `9PM` | Dry now; the hour the next rain starts, minutes floored (9:30 is `9PM`). A 24-hour face uses `21H`. |
 | `DRY` / `CLDY` | No rain in the next 12 hours, overcast |
 | `DRY` / `CLEAR` | No rain in the next 12 hours, not overcast |
 

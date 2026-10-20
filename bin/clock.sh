@@ -596,22 +596,21 @@ dezero() {
     echo "$_z"
 }
 
-fmt_clock_hm() {
-    # 12-hour drops :00 (9PM, 9:30PM). 24-hour always keeps minutes (21:00).
+fmt_rain_hour_num() {
+    # Hour only. 12-hour is 9PM / 4AM. 24-hour is 21H so it does not read as
+    # another temperature next to 20°C. Minutes are floored away by the caller.
     _h=$(dezero "$1")
-    _m=$(dezero "$2")
     if [ "$SHOW_AMPM" = "1" ]; then
-        fmt_ampm_clock "$_h" "$_m"
+        fmt_ampm_clock "$_h" 0
     else
-        printf '%02d:%02d' "$_h" "$_m"
+        printf '%dH' "$_h"
     fi
 }
 
 fmt_rain_hour() {
-    # wttr hourly time is HHMM: 0, 300, 930, 1500, ...
+    # wttr time is HHMM: 0, 300, 930, 1530. Floor to the hour (1530 → 3PM / 15H).
     _rh=$(($1 / 100))
-    _rm=$(($1 % 100))
-    fmt_clock_hm "$_rh" "$_rm"
+    fmt_rain_hour_num "$_rh"
 }
 
 fmt_ampm_clock() {
@@ -640,10 +639,10 @@ fmt_ampm_clock() {
 }
 
 fmt_rain_clock_epoch() {
+    # Hour the slot starts in. 21:30 → 9PM / 21H, not 9:30.
     _h=$(epoch_fmt "$1" '%H')
-    _m=$(epoch_fmt "$1" '%M')
-    [ -n "$_h" ] && [ -n "$_m" ] || { echo "--"; return 0; }
-    fmt_clock_hm "$_h" "$_m"
+    [ -n "$_h" ] || { echo "--"; return 0; }
+    fmt_rain_hour_num "$_h"
 }
 
 compute_seattle_rain() {
@@ -1722,7 +1721,7 @@ dump_selftest() {
     probe_one 168 "$FONT_BOLD" "SUN 17 AUG"
     probe_one 168 "$FONT_BOLD" "18°C"
     probe_one 168 "$FONT_BOLD" "20°C"
-    probe_one 168 "$FONT_BOLD" "9:30PM"
+    probe_one 168 "$FONT_BOLD" "9PM"
     probe_one 440 "$FONT_BOLD" "4"
     log "===================================="
 }
