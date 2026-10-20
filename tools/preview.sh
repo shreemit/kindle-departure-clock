@@ -58,7 +58,8 @@ WEATHER_FEELS=${FEELS:-18°C}
 WEATHER_HUM=${HUM:-62%}
 WEATHER_PRECIP=${PRECIP:-0.0}
 _now=$(date +%s)
-# Open-Meteo cache shape: unix:mm:wmo — default rain in ~90 minutes.
+# Open-Meteo cache shape: unix:mm:wmo. Default upcoming rain is ~90 minutes
+# out and is drawn as an absolute clock time (9:30PM, or 21:30 in 24-hour).
 WEATHER_HOURLY=${HOURLY:-"$_now:0.00:3 $((_now + 1800)):0.00:3 $((_now + 5400)):0.20:51 $((_now + 10800)):0.40:61"}
 WEATHER_RISE=${RISE:-6:12AM}
 WEATHER_SET=${SET:-8:20PM}

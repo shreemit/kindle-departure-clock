@@ -21,7 +21,9 @@ WEATHER_CITY="South Lake Union"
 WEATHER_WIFI=1
 
 # Minutes between weather refreshes (skipped during quiet hours).
-WEATHER_EVERY=60
+# Three hours keeps the radio cold. The forecast still covers 12 hours,
+# so a rain start time stays useful between fetches.
+WEATHER_EVERY=180
 
 # Minutes between flashing full refreshes during the day (skipped while quiet).
 FULL_REFRESH_EVERY=60
