@@ -11,8 +11,8 @@ firmware **5.16.2.1.1**, held in landscape.
      └────┘ └────┘  PM   └────┘ └────┘
 
    ┌──────────────────────────────────────────┐
-   │  FEELS          AIR          RAIN IN     │
-   │  18°C           20°C         1H30        │
+   │  FEELS          AIR          RAIN        │
+   │  18°C           20°C         9PM         │
    │  WIND 8K NW                  HUM 62%     │
    └──────────────────────────────────────────┘
            OVERCAST · TAP 3X TO QUIT
@@ -72,7 +72,7 @@ All in `extensions/pw3clock/config.sh`. Restart the clock to apply.
 | `WEATHER_LAT` / `WEATHER_LON` | `47.62409` / `-122.33567` | Open-Meteo coordinates (South Lake Union). No API key. |
 | `WEATHER_CITY` | `South Lake Union` | Label only; used if Open-Meteo fails and wttr.in is the fallback. Quote names with spaces. |
 | `WEATHER_WIFI` | `1` | `1` briefly enables WiFi to refresh. `0` only fetches if already online. Radio is always turned off after a fetch. |
-| `WEATHER_EVERY` | `60` | Minutes between weather refreshes. Skipped during quiet hours. |
+| `WEATHER_EVERY` | `180` | Minutes between weather refreshes. Skipped during quiet hours. |
 | `FULL_REFRESH_EVERY` | `60` | Minutes between flashing full refreshes during the day. Skipped while quiet. |
 | `QUIET_START` / `QUIET_END` | `03:00` / `07:00` | Quiet window (24h `HH:MM`). Empty `QUIET_START` disables quiet hours. |
 | `QUIET_CLOCK_EVERY` | `5` | Minutes between clock updates while quiet. |
@@ -94,8 +94,7 @@ The right-hand complication is Seattle-flavoured rain, not humidity:
 | --- | --- |
 | `RAIN` / `NOW` | Raining |
 | `DRIZZLE` / `NOW` | Fine Seattle rain |
-| `RAIN IN` / `1H30` | Dry now; rain within 2 hours (15-minute steps) |
-| `RAIN AT` / `6PM` | Dry now; rain later in the 12-hour window (hour of first wet slot) |
+| `RAIN` / `9PM` | Dry now; the hour the next rain starts, minutes floored (9:30 is `9PM`). A 24-hour face uses `21H`. |
 | `DRY` / `CLDY` | No rain in the next 12 hours, overcast |
 | `DRY` / `CLEAR` | No rain in the next 12 hours, not overcast |
 
@@ -103,10 +102,13 @@ Humidity and wind are secondary. Date is `SUN 17 AUG` at header size, with the y
 
 ## Refresh and battery
 
-The screen redraws once a minute by day, and every `QUIET_CLOCK_EVERY`
-minutes between `QUIET_START` and `QUIET_END` (default 03:00–07:00). A flashing
-full refresh runs about once an hour during the day to clear e-ink ghosting;
-weather uses the same hourly cadence and is skipped while quiet. Between ticks
+The face updates once a minute by day, and every `QUIET_CLOCK_EVERY`
+minutes between `QUIET_START` and `QUIET_END` (default 03:00–07:00). A tick
+repaints only the regions whose text changed: a flap digit, the AM/PM marker,
+the date, the battery, the weather box, or the footer. A flashing full refresh
+still runs every `FULL_REFRESH_EVERY` minutes during the day to clear e-ink
+ghosting, and the first paint is always a full redraw. Weather is fetched every
+`WEATHER_EVERY` minutes (default 180) and is skipped while quiet. Between ticks
 the script suspends to RAM when `USE_SUSPEND=1`, so the CPU and radio stay cold.
 
 WiFi is only brought up for a weather fetch, then turned off again.
