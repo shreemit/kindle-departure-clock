@@ -49,29 +49,14 @@ EXIT_FLAG="${EXIT_FLAG:-${PW3_TMP}/pw3clock.STOP}"
 EXIT_RECT="${EXIT_RECT:-${PW3_TMP}/pw3clock.exitrect}"
 FBINFO="${FBINFO:-${PW3_TMP}/pw3clock.fbinfo}"
 TOUCH_PIDFILE="${TOUCH_PIDFILE:-${PW3_TMP}/pw3clock.touchpid}"
+# Previous frame, so a tick can repaint only what changed.
+PREV_DRAW_OK=0
+RESUME_FULL=0
 
 log() {
     _msg="$(date '+%Y-%m-%d %H:%M:%S') $*"
     { echo "$_msg" >> "$LOG"; } 2>/dev/null
     { echo "$_msg" >> "$LOG2"; } 2>/dev/null
-}
-
-# #region agent log
-agent_dbg() {
-    _hid=$1
-    _loc=$2
-    _msg=$3
-    _data=$4
-    _epoch=$(date +%s 2>/dev/null)
-    [ -n "$_epoch" ] || _epoch=0
-    _line=$(printf '{"sessionId":"322cbd","hypothesisId":"%s","location":"%s","message":"%s","data":%s,"timestamp":%s}\n' \
-        "$_hid" "$_loc" "$_msg" "${_data:-{}}" "${_epoch}000")
-    { echo "$_line" >> "$LOG"; } 2>/dev/null
-    { echo "$_line" >> "$LOG2"; } 2>/dev/null
-    if [ -n "${PW3_AGENT_LOG:-}" ]; then
-        { echo "$_line" >> "$PW3_AGENT_LOG"; } 2>/dev/null
-    fi
-    { echo "$_line" >> "/Users/shreemit/Developer/Kindle/.cursor/debug-322cbd.log"; } 2>/dev/null
 }
 
 rtc_stamp() {
@@ -93,10 +78,6 @@ sync_system_from_rtc() {
     _skew=$((_sys - _rtc))
     _abs=$_skew
     [ "$_abs" -lt 0 ] && _abs=$((-_abs))
-    # #region agent log
-    agent_dbg B "clock.sh:sync_system_from_rtc:before" "rtc vs sys before sync" \
-        "{\"sys\":$_sys,\"rtc\":$_rtc,\"skew\":$_skew}"
-    # #endregion
     # Ignore tiny jitter; refuse hour-scale jumps (would be TZ misuse).
     if [ "$_abs" -lt 2 ] || [ "$_abs" -gt 3600 ]; then
         return 0
@@ -114,10 +95,6 @@ sync_system_from_rtc() {
         _skew2=$((_sys2 - _rtc2))
     fi
     log "synced system from rtc skew=${_skew}s now=${_skew2}s"
-    # #region agent log
-    agent_dbg B "clock.sh:sync_system_from_rtc:after" "rtc vs sys after sync" \
-        "{\"sys\":${_sys2:-0},\"rtc\":\"$_rtc2\",\"skewBefore\":$_skew,\"skewAfter\":$_skew2}"
-    # #endregion
 }
 
 try_ntp_sync() {
@@ -127,12 +104,7 @@ try_ntp_sync() {
     _post=$(date +%s 2>/dev/null)
     hwclock -w -u -f /dev/rtc1 >/dev/null 2>&1 || hwclock -w -u >/dev/null 2>&1
     log "ntpdate pre=$_pre post=$_post"
-    # #region agent log
-    agent_dbg E "clock.sh:try_ntp_sync" "ntpdate" \
-        "{\"pre\":${_pre:-0},\"post\":${_post:-0}}"
-    # #endregion
 }
-# #endregion
 
 trim_log() {
     # The clock runs for days; keep the log from growing without bound.
@@ -170,7 +142,7 @@ load_config() {
     WEATHER_LAT="${WEATHER_LAT:-47.62409}"
     WEATHER_LON="${WEATHER_LON:--122.33567}"
     WEATHER_WIFI="${WEATHER_WIFI:-1}"
-    WEATHER_EVERY="${WEATHER_EVERY:-60}"
+    WEATHER_EVERY="${WEATHER_EVERY:-180}"
     FULL_REFRESH_EVERY="${FULL_REFRESH_EVERY:-60}"
     QUIET_START="${QUIET_START:-}"
     QUIET_END="${QUIET_END:-07:00}"
@@ -624,43 +596,21 @@ dezero() {
     echo "$_z"
 }
 
-fmt_rain_hour() {
-    # wttr hourly time is 0, 300, 900, 1500, ...
-    _rh=$(($1 / 100))
+fmt_rain_hour_num() {
+    # Hour only. 12-hour is 9PM / 4AM. 24-hour is 21H so it does not read as
+    # another temperature next to 20°C. Minutes are floored away by the caller.
+    _h=$(dezero "$1")
     if [ "$SHOW_AMPM" = "1" ]; then
-        if [ "$_rh" -eq 0 ]; then
-            echo "12AM"
-        elif [ "$_rh" -lt 12 ]; then
-            echo "${_rh}AM"
-        elif [ "$_rh" -eq 12 ]; then
-            echo "12PM"
-        else
-            echo "$((_rh - 12))PM"
-        fi
+        fmt_ampm_clock "$_h" 0
     else
-        printf '%02d:00' "$_rh"
+        printf '%dH' "$_h"
     fi
 }
 
-fmt_rain_in() {
-    _m=$1
-    if [ "$_m" -le 15 ]; then
-        echo "15M"
-    elif [ "$_m" -le 30 ]; then
-        echo "30M"
-    elif [ "$_m" -le 45 ]; then
-        echo "45M"
-    elif [ "$_m" -le 60 ]; then
-        echo "1H"
-    elif [ "$_m" -le 75 ]; then
-        echo "1H15"
-    elif [ "$_m" -le 90 ]; then
-        echo "1H30"
-    elif [ "$_m" -le 105 ]; then
-        echo "1H45"
-    else
-        echo "2H"
-    fi
+fmt_rain_hour() {
+    # wttr time is HHMM: 0, 300, 930, 1530. Floor to the hour (1530 → 3PM / 15H).
+    _rh=$(($1 / 100))
+    fmt_rain_hour_num "$_rh"
 }
 
 fmt_ampm_clock() {
@@ -688,19 +638,15 @@ fmt_ampm_clock() {
     fi
 }
 
-fmt_rain_at_epoch() {
-    # Hour only — drop :15 so 6:15PM and 6:00PM both read 6PM.
+fmt_rain_clock_epoch() {
+    # Hour the slot starts in. 21:30 → 9PM / 21H, not 9:30.
     _h=$(epoch_fmt "$1" '%H')
     [ -n "$_h" ] || { echo "--"; return 0; }
-    if [ "$SHOW_AMPM" = "1" ]; then
-        fmt_ampm_clock "$_h" 0
-    else
-        printf '%02d:00' "$(dezero "$_h")"
-    fi
+    fmt_rain_hour_num "$_h"
 }
 
 compute_seattle_rain() {
-    # Seattle-specific: rain now, drizzle, rain-in / rain-at, or dry sky.
+    # Seattle-specific: raining now, clock time rain starts, or dry sky.
     WEATHER_RAIN_LABEL="DRY"
     WEATHER_RAIN="CLEAR"
     _cond=$WEATHER_COND
@@ -758,17 +704,10 @@ compute_seattle_rain() {
         fi
     done
     if [ -n "$_next" ]; then
+        WEATHER_RAIN_LABEL="RAIN"
         if [ "$_next_kind" = "om" ]; then
-            _mins=$(( (_next - _now + 59) / 60 ))
-            if [ "$_mins" -le 120 ]; then
-                WEATHER_RAIN_LABEL="RAIN IN"
-                WEATHER_RAIN=$(fmt_rain_in "$_mins")
-            else
-                WEATHER_RAIN_LABEL="RAIN AT"
-                WEATHER_RAIN=$(fmt_rain_at_epoch "$_next")
-            fi
+            WEATHER_RAIN=$(fmt_rain_clock_epoch "$_next")
         else
-            WEATHER_RAIN_LABEL="RAIN AT"
             WEATHER_RAIN=$(fmt_rain_hour "$_next")
         fi
         return 0
@@ -1054,19 +993,9 @@ update_weather() {
             return 1
         fi
     fi
-    # #region agent log
-    _pre_ntp=$(date '+%H:%M:%S' 2>/dev/null)
-    _pre_epoch=$(date +%s 2>/dev/null)
-    # #endregion
     try_ntp_sync
     fetch_weather
     _rc=$?
-    # #region agent log
-    _post_ntp=$(date '+%H:%M:%S' 2>/dev/null)
-    _post_epoch=$(date +%s 2>/dev/null)
-    agent_dbg E "clock.sh:update_weather" "after wifi weather" \
-        "{\"pre\":\"$_pre_ntp\",\"post\":\"$_post_ntp\",\"preEpoch\":${_pre_epoch:-0},\"postEpoch\":${_post_epoch:-0},\"rc\":$_rc}"
-    # #endregion
     # Always drop the radio after a fetch — leaving WiFi up drains the pack.
     disable_wifi
     return $_rc
@@ -1313,6 +1242,93 @@ draw_colon() {
     fill_rect "$INK" "$_cy2" "$_cx" "$_sq" "$_sq"
 }
 
+refresh_rect() {
+    # top left w h — e-ink refresh of one rectangle. Draws nothing.
+    _rt=$1
+    _rl=$2
+    _rw=$3
+    _rh=$4
+    [ "$_rw" -gt 0 ] && [ "$_rh" -gt 0 ] || return 0
+    "$FBINK" -q -w -s "top=${_rt},left=${_rl},width=${_rw},height=${_rh}" ||
+        log "region refresh failed ${_rt},${_rl} ${_rw}x${_rh}"
+}
+
+refresh_full() {
+    if [ "$1" = "1" ]; then
+        "$FBINK" -q -w -f -s || log "full refresh failed"
+    else
+        "$FBINK" -q -w -s || log "full refresh failed"
+    fi
+}
+
+paint_date() {
+    print_ot "$FONT_BOLD" "$_date_px" "$_date_top" "$_margin" "$_date_right" "$DATE_PRI" 0
+    print_ot "$FONT_REG" "$_year_size" "$_year_top" "$_year_left" $((W - _bat_block_l + 8)) "$DATE_YEAR" 0
+}
+
+paint_battery() {
+    draw_battery "$_bat_l" "$_bat_t" "$_bat_w" "$_bat_h" "$_bat"
+}
+
+paint_time() {
+    if [ -z "$_m2" ]; then
+        print_ot "$FONT_BOLD" $((_cell_h * 60 / 100)) \
+            $((_cells_top + _cell_h / 2 - _cell_h * 60 / 100 * FONT_FLAP_MID / 100)) \
+            "$_margin" "$_margin" "$_time" 1
+        return 0
+    fi
+    draw_flap "$_x0" "$_cells_top" "$_cell_w" "$_cell_h" "$_h1"
+    draw_flap "$_x1" "$_cells_top" "$_cell_w" "$_cell_h" "$_h2"
+    draw_colon "$_xcol" "$_cells_top" "$_colon_w" "$_cell_h"
+    if [ -n "$CLOCK_AMPM" ]; then
+        print_ot "$FONT_BOLD" "$_apx" "$_ap_top" \
+            "$_xcol" $((W - _xcol - _colon_w)) "$CLOCK_AMPM" 1
+    fi
+    draw_flap "$_x2" "$_cells_top" "$_cell_w" "$_cell_h" "$_m1"
+    draw_flap "$_x3" "$_cells_top" "$_cell_w" "$_cell_h" "$_m2"
+}
+
+paint_weather() {
+    outline_rect "$_box_top" "$_margin" "$_box_w" "$_box_h" 3
+    print_ot_fit "$FONT_REG" "$_caption" "$_cap_top" "$_c0l" "$_c0r" "FEELS" 1
+    print_ot_fit "$FONT_REG" "$_caption" "$_cap_top" "$_c1l" "$_c1r" "AIR" 1
+    print_ot_fit "$FONT_REG" "$_caption" "$_cap_top" "$_c2l" "$_c2r" "$WEATHER_RAIN_LABEL" 1
+    print_ot_fit "$FONT_BOLD" "$_primary" "$_val_top" "$_c0l" "$_c0r" "$WEATHER_FEELS" 1
+    print_ot_fit "$FONT_BOLD" "$_primary" "$_val_top" "$_c1l" "$_c1r" "$WEATHER_TEMP" 1
+    print_ot_fit "$FONT_BOLD" "$_primary" "$_val_top" "$_c2l" "$_c2r" "$WEATHER_RAIN" 1
+    print_ot_fit "$FONT_REG" "$_secondary" "$_foot_top" "$_c0l" "$_c0r" "$_wind" 1
+    print_ot_fit "$FONT_REG" "$_secondary" "$_foot_top" "$_c2l" "$_c2r" "$_hum" 1
+}
+
+paint_footer() {
+    print_ot "$FONT_REG" 24 "$_hint_top" "$_margin" "$_margin" "$_hint" 1
+}
+
+remember_frame() {
+    PREV_DRAW_OK=1
+    PREV_W=$W
+    PREV_H=$H
+    PREV_INK=$INK
+    PREV_PAPER=$PAPER
+    PREV_MODE=$_mode
+    PREV_H1=$_h1
+    PREV_H2=$_h2
+    PREV_M1=$_m1
+    PREV_M2=$_m2
+    PREV_AMPM=$CLOCK_AMPM
+    PREV_DATE=$DATE_PRI
+    PREV_YEAR=$DATE_YEAR
+    PREV_BAT=$_bat
+    PREV_FEELS=$WEATHER_FEELS
+    PREV_TEMP=$WEATHER_TEMP
+    PREV_RLABEL=$WEATHER_RAIN_LABEL
+    PREV_RAIN=$WEATHER_RAIN
+    PREV_WIND=$_wind
+    PREV_HUM=$_hum
+    PREV_HINT=$_hint
+    RESUME_FULL=0
+}
+
 draw_airport() {
     _time="$1"
     _date="$2"
@@ -1320,13 +1336,6 @@ draw_airport() {
     _full="$4"
     W=$VIEW_W
     H=$VIEW_H
-
-    if [ "$_full" = "1" ]; then
-        "$FBINK" -q -b -c -f -C "$INK" -B "$PAPER"
-    else
-        "$FBINK" -q -b -c -C "$INK" -B "$PAPER"
-    fi
-    fill_rect "$PAPER" 0 0 "$W" "$H"
 
     OT_FAILED=0
     board_date_parts "$_date"
@@ -1387,10 +1396,6 @@ draw_airport() {
     _year_limit=$((_bat_block_l - _year_size * 4))
     [ "$_year_left" -gt "$_year_limit" ] && _year_left=$_year_limit
 
-    draw_battery "$_bat_l" "$_bat_t" "$_bat_w" "$_bat_h" "$_bat"
-    print_ot "$FONT_BOLD" "$_date_px" "$_date_top" "$_margin" "$_date_right" "$DATE_PRI" 0
-    print_ot "$FONT_REG" "$_year_size" "$_year_top" "$_year_left" $((W - _bat_block_l + 8)) "$DATE_YEAR" 0
-
     _band_top=$((_header + _gap_v))
     _band_bot=$((_box_top - _gap_v))
     _cell_h=$((_band_bot - _band_top))
@@ -1405,33 +1410,27 @@ draw_airport() {
     fi
     [ "$_cell_h" -lt 80 ] && _cell_h=80
     _cells_top=$((_band_top + (_band_bot - _band_top - _cell_h) / 2))
-    _x=$_margin
+    _x0=$_margin
+    _x1=$((_x0 + _cell_w + _gap))
+    _xcol=$((_x1 + _cell_w + _gap))
+    _x2=$((_xcol + _colon_w + _gap))
+    _x3=$((_x2 + _cell_w + _gap))
+    _apx=$((_colon_w * 48 / 100))
+    _ap_top=$((_cells_top + _cell_h * 74 / 100))
+    _ap_clear_top=$((_cells_top + _cell_h * 68 / 100))
+    _ap_clear_h=$((_cells_top + _cell_h - _ap_clear_top))
 
     _h1=$(echo "$_time" | cut -c1)
     _h2=$(echo "$_time" | cut -c2)
     _m1=$(echo "$_time" | cut -c4)
     _m2=$(echo "$_time" | cut -c5)
     if [ -z "$_m2" ]; then
-        print_ot "$FONT_BOLD" $((_cell_h * 60 / 100)) $((_cells_top + _cell_h / 2 - _cell_h * 60 / 100 * FONT_FLAP_MID / 100)) "$_margin" "$_margin" "$_time" 1
+        _mode=text
     else
-        draw_flap "$_x" "$_cells_top" "$_cell_w" "$_cell_h" "$_h1"
-        _x=$((_x + _cell_w + _gap))
-        draw_flap "$_x" "$_cells_top" "$_cell_w" "$_cell_h" "$_h2"
-        _x=$((_x + _cell_w + _gap))
-        draw_colon "$_x" "$_cells_top" "$_colon_w" "$_cell_h"
-        if [ -n "$CLOCK_AMPM" ]; then
-            _apx=$((_colon_w * 48 / 100))
-            print_ot "$FONT_BOLD" "$_apx" $((_cells_top + _cell_h * 74 / 100)) \
-                "$_x" $((W - _x - _colon_w)) "$CLOCK_AMPM" 1
-        fi
-        _x=$((_x + _colon_w + _gap))
-        draw_flap "$_x" "$_cells_top" "$_cell_w" "$_cell_h" "$_m1"
-        _x=$((_x + _cell_w + _gap))
-        draw_flap "$_x" "$_cells_top" "$_cell_w" "$_cell_h" "$_m2"
+        _mode=flap
     fi
 
     _box_w=$((W - _margin - _margin))
-    outline_rect "$_box_top" "$_margin" "$_box_w" "$_box_h" 3
     # print_ot centres between `left` and W-`right`, so each column's right
     # value is the distance from the screen edge to that column's right edge.
     _col_w=$((_box_w / 3))
@@ -1443,23 +1442,107 @@ draw_airport() {
     _c2l=$((_margin + _col_w + _col_w + _col_pad))
     _c2r=$((_margin + _col_pad))
 
-    print_ot_fit "$FONT_REG" "$_caption" "$_cap_top" "$_c0l" "$_c0r" "FEELS" 1
-    print_ot_fit "$FONT_REG" "$_caption" "$_cap_top" "$_c1l" "$_c1r" "AIR" 1
-    print_ot_fit "$FONT_REG" "$_caption" "$_cap_top" "$_c2l" "$_c2r" "$WEATHER_RAIN_LABEL" 1
-
-    print_ot_fit "$FONT_BOLD" "$_primary" "$_val_top" "$_c0l" "$_c0r" "$WEATHER_FEELS" 1
-    print_ot_fit "$FONT_BOLD" "$_primary" "$_val_top" "$_c1l" "$_c1r" "$WEATHER_TEMP" 1
-    print_ot_fit "$FONT_BOLD" "$_primary" "$_val_top" "$_c2l" "$_c2r" "$WEATHER_RAIN" 1
-
     _wind="WIND $(fmt_wind_short)"
     _hum="HUM $WEATHER_HUM"
-    print_ot_fit "$FONT_REG" "$_secondary" "$_foot_top" "$_c0l" "$_c0r" "$_wind" 1
-    print_ot_fit "$FONT_REG" "$_secondary" "$_foot_top" "$_c2l" "$_c2r" "$_hum" 1
-
     _hint="$WEATHER_COND · TAP 3X TO QUIT"
-    print_ot "$FONT_REG" 24 $((_box_top + _box_h + 6)) "$_margin" "$_margin" "$_hint" 1
+    _hint_top=$((_box_top + _box_h + 6))
+    _foot_y=$((_box_top + _box_h))
+    _foot_h=$((H - _foot_y))
+    _bat_region_w=$((W - _bat_block_l))
 
-    "$FBINK" -q -w -s
+    # Full paint: first frame, the hourly flash, a theme or size change,
+    # a time shape that is not four flaps, or a suspend that did not stick.
+    _do_full=0
+    [ "$_full" = "1" ] && _do_full=1
+    [ "$PREV_DRAW_OK" = "1" ] || _do_full=1
+    if [ "$PREV_W" != "$W" ] || [ "$PREV_H" != "$H" ] ||
+        [ "$PREV_INK" != "$INK" ] || [ "$PREV_PAPER" != "$PAPER" ] ||
+        [ "$PREV_MODE" != "$_mode" ]; then
+        _do_full=1
+    fi
+    [ "$RESUME_FULL" = "1" ] && _do_full=1
+    [ "$_mode" = "flap" ] || _do_full=1
+
+    if [ "$_do_full" = "1" ]; then
+        if [ "$_full" = "1" ]; then
+            "$FBINK" -q -b -c -f -C "$INK" -B "$PAPER" || return 1
+        else
+            "$FBINK" -q -b -c -C "$INK" -B "$PAPER" || return 1
+        fi
+        fill_rect "$PAPER" 0 0 "$W" "$H"
+        paint_battery
+        paint_date
+        paint_time
+        paint_weather
+        paint_footer
+        refresh_full "$_full"
+        log "paint full flash=$_full"
+        remember_frame
+        return 0
+    fi
+
+    _dirty=""
+    if [ "$PREV_DATE" != "$DATE_PRI" ] || [ "$PREV_YEAR" != "$DATE_YEAR" ]; then
+        fill_rect "$PAPER" 0 0 "$_bat_block_l" "$_band_top"
+        paint_date
+        refresh_rect 0 0 "$_bat_block_l" "$_band_top"
+        _dirty="${_dirty}date "
+    fi
+    if [ "$PREV_BAT" != "$_bat" ]; then
+        fill_rect "$PAPER" 0 "$_bat_block_l" "$_bat_region_w" "$_band_top"
+        paint_battery
+        refresh_rect 0 "$_bat_block_l" "$_bat_region_w" "$_band_top"
+        _dirty="${_dirty}bat "
+    fi
+    if [ "$PREV_H1" != "$_h1" ]; then
+        draw_flap "$_x0" "$_cells_top" "$_cell_w" "$_cell_h" "$_h1"
+        refresh_rect "$_cells_top" "$_x0" "$_cell_w" "$_cell_h"
+        _dirty="${_dirty}h1 "
+    fi
+    if [ "$PREV_H2" != "$_h2" ]; then
+        draw_flap "$_x1" "$_cells_top" "$_cell_w" "$_cell_h" "$_h2"
+        refresh_rect "$_cells_top" "$_x1" "$_cell_w" "$_cell_h"
+        _dirty="${_dirty}h2 "
+    fi
+    if [ "$PREV_AMPM" != "$CLOCK_AMPM" ]; then
+        fill_rect "$PAPER" "$_ap_clear_top" "$_xcol" "$_colon_w" "$_ap_clear_h"
+        if [ -n "$CLOCK_AMPM" ]; then
+            print_ot "$FONT_BOLD" "$_apx" "$_ap_top" \
+                "$_xcol" $((W - _xcol - _colon_w)) "$CLOCK_AMPM" 1
+        fi
+        refresh_rect "$_ap_clear_top" "$_xcol" "$_colon_w" "$_ap_clear_h"
+        _dirty="${_dirty}ampm "
+    fi
+    if [ "$PREV_M1" != "$_m1" ]; then
+        draw_flap "$_x2" "$_cells_top" "$_cell_w" "$_cell_h" "$_m1"
+        refresh_rect "$_cells_top" "$_x2" "$_cell_w" "$_cell_h"
+        _dirty="${_dirty}m1 "
+    fi
+    if [ "$PREV_M2" != "$_m2" ]; then
+        draw_flap "$_x3" "$_cells_top" "$_cell_w" "$_cell_h" "$_m2"
+        refresh_rect "$_cells_top" "$_x3" "$_cell_w" "$_cell_h"
+        _dirty="${_dirty}m2 "
+    fi
+    if [ "$PREV_FEELS" != "$WEATHER_FEELS" ] || [ "$PREV_TEMP" != "$WEATHER_TEMP" ] ||
+        [ "$PREV_RLABEL" != "$WEATHER_RAIN_LABEL" ] || [ "$PREV_RAIN" != "$WEATHER_RAIN" ] ||
+        [ "$PREV_WIND" != "$_wind" ] || [ "$PREV_HUM" != "$_hum" ]; then
+        paint_weather
+        refresh_rect "$_box_top" "$_margin" "$_box_w" "$_box_h"
+        _dirty="${_dirty}weather "
+    fi
+    if [ "$PREV_HINT" != "$_hint" ]; then
+        fill_rect "$PAPER" "$_foot_y" 0 "$W" "$_foot_h"
+        paint_footer
+        refresh_rect "$_foot_y" 0 "$W" "$_foot_h"
+        _dirty="${_dirty}footer "
+    fi
+    if [ -n "$_dirty" ]; then
+        log "paint partial ${_dirty}"
+    else
+        log "paint unchanged"
+    fi
+    remember_frame
+    return 0
 }
 
 draw_eips() {
@@ -1485,24 +1568,17 @@ draw_clock() {
     fi
     compute_seattle_rain
     log "draw time=$_time date=$_date bat=$_bat weather=$WEATHER_COND $WEATHER_TEMP rain=$WEATHER_RAIN_LABEL $WEATHER_RAIN fbink=$HAVE_FBINK ${VIEW_W}x${VIEW_H}"
-    # #region agent log
-    _sys24=$(date '+%H:%M:%S' 2>/dev/null)
-    _epoch=$(date +%s 2>/dev/null)
-    _rtc=$(rtc_stamp)
-    _quiet_now=0
-    is_quiet_hours && _quiet_now=1
-    agent_dbg D "clock.sh:draw_clock" "drawn face" \
-        "{\"time\":\"$_time\",\"ampm\":\"$CLOCK_AMPM\",\"sys24\":\"$_sys24\",\"epoch\":${_epoch:-0},\"rtc\":\"$_rtc\",\"full\":$_full,\"quiet\":$_quiet_now}"
-    # #endregion
 
     if [ "$HAVE_FBINK" -eq 1 ] && [ -n "$FONT_BOLD" ]; then
         if ! draw_airport "$_time" "$_date" "$_bat" "$_full"; then
             log "airport draw failed, eips fallback"
             HAVE_FBINK=0
+            PREV_DRAW_OK=0
             draw_eips "$_time" "$_date" "$_bat"
             return 0
         fi
     else
+        PREV_DRAW_OK=0
         draw_eips "$_time" "$_date" "$_bat"
     fi
 }
@@ -1553,37 +1629,26 @@ sleep_for_secs() {
     _secs="$1"
     [ "$_secs" -gt 0 ] || _secs=1
     log "sleeping ${_secs}s (suspend=$USE_SUSPEND)"
-    # #region agent log
-    _pre_e=$(date +%s 2>/dev/null)
-    _pre_t=$(date '+%H:%M:%S' 2>/dev/null)
-    _pre_rtc=$(rtc_stamp)
-    agent_dbg A "clock.sh:sleep_for_secs:before" "before sleep/suspend" \
-        "{\"secs\":$_secs,\"suspend\":\"$USE_SUSPEND\",\"sys\":\"$_pre_t\",\"epoch\":${_pre_e:-0},\"rtc\":\"$_pre_rtc\"}"
-    # #endregion
     if [ "$USE_SUSPEND" = "1" ]; then
+        _pre_e=$(date +%s 2>/dev/null)
         echo 0 > /sys/class/rtc/rtc1/wakealarm 2>/dev/null
         rtcwake -d /dev/rtc1 -m no -s "$_secs" >> "$LOG" 2>&1
         echo mem > /sys/power/state
         sync_system_from_rtc
+        _post_e=$(date +%s 2>/dev/null)
+        _delta=0
+        if [ -n "$_pre_e" ] && [ -n "$_post_e" ]; then
+            _delta=$((_post_e - _pre_e))
+        fi
+        # Suspend that returns immediately did not stick. The panel may have
+        # been touched while we stayed awake, so the next paint is full.
+        if [ "$_delta" -lt 2 ]; then
+            RESUME_FULL=1
+            log "suspend returned in ${_delta}s; next paint is full"
+        fi
     else
         sleep "$_secs"
     fi
-    # #region agent log
-    _post_e=$(date +%s 2>/dev/null)
-    _post_t=$(date '+%H:%M:%S' 2>/dev/null)
-    _post_rtc=$(rtc_stamp)
-    _delta=0
-    if [ -n "$_pre_e" ] && [ -n "$_post_e" ]; then
-        _delta=$((_post_e - _pre_e))
-    fi
-    _slip=$((_secs - _delta))
-    _post_skew=0
-    if [ -n "$_post_e" ] && [ -n "$_post_rtc" ]; then
-        _post_skew=$((_post_e - _post_rtc))
-    fi
-    agent_dbg A "clock.sh:sleep_for_secs:after" "after sleep/suspend" \
-        "{\"secs\":$_secs,\"suspend\":\"$USE_SUSPEND\",\"sys\":\"$_post_t\",\"epoch\":${_post_e:-0},\"rtc\":\"$_post_rtc\",\"delta\":$_delta,\"slip\":$_slip,\"skew\":$_post_skew}"
-    # #endregion
 }
 
 # Sleep until the next N-minute boundary (aligned to midnight).
@@ -1601,10 +1666,6 @@ sleep_until_next_tick() {
     if [ "$_secs" -lt 3 ]; then
         _secs=$((_secs + _span))
     fi
-    # #region agent log
-    agent_dbg C "clock.sh:sleep_until_next_tick" "tick math" \
-        "{\"interval\":$_interval,\"h\":$_ih,\"m\":$_im,\"s\":$_is,\"into\":$_into,\"span\":$_span,\"secs\":$_secs,\"quietStart\":\"$QUIET_START\",\"quietEnd\":\"$QUIET_END\"}"
-    # #endregion
     sleep_for_secs "$_secs"
 }
 
@@ -1656,7 +1717,7 @@ dump_selftest() {
     log "--- text probes (every size the board uses) ---"
     probe_one 24 "$FONT_REG" "OVERCAST · TAP 3X TO QUIT"
     probe_one 52 "$FONT_REG" "WIND 8K NW"
-    probe_one 54 "$FONT_REG" "RAIN AT"
+    probe_one 54 "$FONT_REG" "RAIN"
     probe_one 168 "$FONT_BOLD" "SUN 17 AUG"
     probe_one 168 "$FONT_BOLD" "18°C"
     probe_one 168 "$FONT_BOLD" "20°C"
